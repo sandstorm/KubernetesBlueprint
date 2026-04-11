@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# Wrapper for etcdctl with K3s embedded etcd TLS config
+# Adapted from https://gist.github.com/superseb/0c06164eef5a097c66e810fe91a9d408
+
+export ETCDCTL_ENDPOINTS='https://127.0.0.1:2379'
+export ETCDCTL_CACERT='/var/lib/rancher/k3s/server/tls/etcd/server-ca.crt'
+export ETCDCTL_CERT='/var/lib/rancher/k3s/server/tls/etcd/server-client.crt'
+export ETCDCTL_KEY='/var/lib/rancher/k3s/server/tls/etcd/server-client.key'
+export ETCDCTL_API=3
+
+/root/etcd-{{ etcdctl_version }}/etcd-{{ etcdctl_version }}-linux-amd64/etcdctl "$@"

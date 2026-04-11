@@ -1,0 +1,41 @@
+---
+# =============================================================================
+# K3s Cluster Configuration
+# =============================================================================
+# Copy this file to all.yml and adjust the values below.
+# For Ansible Vault: ansible-vault encrypt_string 'your-secret' --name 'k3s_token'
+
+# ---- REQUIRED ---------------------------------------------------------------
+
+# K3s release version — find releases at https://github.com/k3s-io/k3s/releases
+k3s_version: "v1.33.6+k3s1"
+
+# Cluster shared secret — generate with: openssl rand -hex 32
+k3s_token: "CHANGE_ME"
+
+# ---- OPTIONAL ----------------------------------------------------------------
+
+# K3s mode: "server" (control plane + worker) or "agent" (worker only)
+# k3s_mode: "server"
+
+# Additional K3s CLI arguments (see README.md for common patterns)
+# k3s_extra_args: "--cluster-init"
+
+# ---- Rancher UI (optional) ---------------------------------------------------
+
+# k3s_install_rancher: true
+# k3s_rancher_hostname: "rancher.example.com"
+# k3s_rancher_letsencrypt_email: "admin@example.com"
+# k3s_rancher_version: "2.12.3"
+# k3s_certmanager_version: "1.19.0"
+
+# ---- etcdctl (optional) ------------------------------------------------------
+
+# k3s_install_etcdctl: true
+# etcdctl_version: "v3.5.0"
+
+# ---- Private Docker Registry (optional) --------------------------------------
+
+# k3s_private_registry_host: "registry.example.com"
+# k3s_private_registry_username: "user"
+# k3s_private_registry_password: "password"

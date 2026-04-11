@@ -1,0 +1,6 @@
+# https://docs.k3s.io/installation/private-registry
+configs:
+  "{{ k3s_private_registry_host }}":
+    auth:
+      username: "{{ k3s_private_registry_username }}"
+      password: "{{ k3s_private_registry_password }}"

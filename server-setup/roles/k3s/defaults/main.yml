@@ -1,0 +1,75 @@
+---
+# =============================================================================
+# K3s Role — Default Variables
+# =============================================================================
+
+# ---------------------
+# REQUIRED (no defaults — playbook will fail if not set)
+# ---------------------
+
+# K3s release version. Find versions at: https://github.com/k3s-io/k3s/releases
+# Example: "v1.33.6+k3s1"
+# k3s_version:
+
+# Shared secret token for the cluster. Generate with: openssl rand -hex 32
+# For production, use Ansible Vault: k3s_token: "{{ vault_k3s_token }}"
+# k3s_token:
+
+# ---------------------
+# K3s Core
+# ---------------------
+
+# K3s mode: "server" (control plane + worker) or "agent" (worker only)
+k3s_mode: "server"
+
+# Additional K3s CLI arguments. This is the main knob for cluster configuration.
+# Default enables embedded etcd for a single-node setup.
+#
+# Common patterns:
+#   Single node:           "--cluster-init"
+#   Disable built-in ingress: "--cluster-init --disable=traefik"
+#   Multi-node first node: "--cluster-init --node-ip <PRIVATE_IP> --tls-san <PUBLIC_IP>"
+#   Multi-node join node:  "--server https://<FIRST_NODE_IP>:6443 --tls-san <PUBLIC_IP>"
+#   With Cilium CNI:       "--cluster-init --disable=traefik --disable-network-policy --flannel-backend=none"
+#   High pod density:      add "--kubelet-arg=max-pods=250"
+k3s_extra_args: "--cluster-init"
+
+# ---------------------
+# Rancher UI (optional)
+# ---------------------
+
+# Set to true to deploy Rancher + cert-manager via auto-deployed Helm charts
+k3s_install_rancher: false
+
+# Required when k3s_install_rancher is true:
+# k3s_rancher_hostname: "rancher.example.com"
+# k3s_rancher_letsencrypt_email: "admin@example.com"
+
+k3s_rancher_version: "2.12.3"
+k3s_certmanager_version: "1.19.0"
+
+# ---------------------
+# etcdctl (optional)
+# ---------------------
+
+# Install etcdctl for debugging the embedded etcd database
+k3s_install_etcdctl: true
+
+etcdctl_version: "v3.5.0"
+# SHA256 checksum from https://github.com/etcd-io/etcd/releases
+etcdctl_zip_checksum: "864baa0437f8368e0713d44b83afe21dce1fb4ee7dae4ca0f9dd5f0df22d01c4"
+
+# ---------------------
+# Private Docker Registry (optional)
+# ---------------------
+
+# Uncomment to configure a private registry for K3s to pull images from.
+# k3s_private_registry_host: "registry.example.com"
+# k3s_private_registry_username: "user"
+# k3s_private_registry_password: "password"
+
+# ---------------------
+# System
+# ---------------------
+
+systemd_dir: "/etc/systemd/system"

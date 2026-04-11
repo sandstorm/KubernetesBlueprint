@@ -1,0 +1,156 @@
+---
+# =============================================================================
+# K3s Installation
+# =============================================================================
+
+# --- Variable validation ---
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - k3s_version is defined and k3s_version | length > 0
+      - k3s_token is defined and k3s_token | length > 0
+    fail_msg: "k3s_version and k3s_token must be set. See defaults/main.yml for details."
+
+- name: Validate Rancher variables (when enabled)
+  ansible.builtin.assert:
+    that:
+      - k3s_rancher_hostname is defined and k3s_rancher_hostname | length > 0
+      - k3s_rancher_letsencrypt_email is defined and k3s_rancher_letsencrypt_email | length > 0
+    fail_msg: "k3s_rancher_hostname and k3s_rancher_letsencrypt_email must be set when k3s_install_rancher is true."
+  when: k3s_install_rancher | bool
+
+# --- K3s binary ---
+
+- name: Download K3s binary (x86_64)
+  get_url:
+    url: https://github.com/k3s-io/k3s/releases/download/{{ k3s_version }}/k3s
+    checksum: sha256:https://github.com/k3s-io/k3s/releases/download/{{ k3s_version }}/sha256sum-amd64.txt
+    dest: /usr/local/bin/k3s
+    owner: root
+    group: root
+    mode: 0755
+  notify:
+    - restart k3s
+
+- name: Place K3s cluster token
+  copy:
+    content: '{{ k3s_token }}'
+    dest: /root/k3s-token
+    mode: 0600
+    owner: root
+    group: root
+
+# --- Directories ---
+
+- name: Create K3s manifest directory
+  file:
+    path: /var/lib/rancher/k3s/server/manifests
+    state: directory
+    owner: root
+
+- name: Create K3s config directory
+  file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+
+# --- Private registry (optional) ---
+
+- name: Deploy private registry config
+  template:
+    src: registries.yml.j2
+    dest: /etc/rancher/k3s/registries.yaml
+  when: k3s_private_registry_host is defined
+  notify:
+    - restart k3s
+
+# --- Rancher (optional) ---
+
+- name: Deploy Rancher + cert-manager
+  include_tasks: rancher.yml
+  when: k3s_install_rancher | bool
+
+# --- CLI symlinks ---
+
+- name: Create kubectl symlink
+  file:
+    src: /usr/local/bin/k3s
+    dest: /usr/local/bin/kubectl
+    state: link
+
+- name: Create crictl symlink
+  file:
+    src: /usr/local/bin/k3s
+    dest: /usr/local/bin/crictl
+    state: link
+
+- name: Create ctr symlink
+  file:
+    src: /usr/local/bin/k3s
+    dest: /usr/local/bin/ctr
+    state: link
+
+# --- etcdctl (optional) ---
+
+- name: Install etcdctl
+  include_tasks: etcdctl.yml
+  when: k3s_install_etcdctl | bool
+
+# --- systemd service ---
+
+- name: Deploy K3s systemd service
+  register: k3s_service
+  template:
+    src: k3s.service.j2
+    dest: "{{ systemd_dir }}/k3s.service"
+    owner: root
+    group: root
+    mode: 0755
+  notify:
+    - restart k3s
+
+- name: Enable and start K3s
+  systemd:
+    name: k3s
+    state: started
+    enabled: yes
+  become: yes
+
+# --- Post-install ---
+
+- name: Create ~/.kube directory
+  file:
+    path: ~/.kube
+    state: directory
+    mode: "u=rwx,g=rx,o="
+
+# --- Kernel tuning ---
+
+- name: Increase vm.max_map_count (required for Elasticsearch)
+  sysctl:
+    name: vm.max_map_count
+    value: '262144'
+    state: present
+    reload: true
+
+- name: Reduce tcp_retries2 (recommended for Elasticsearch)
+  sysctl:
+    name: net.ipv4.tcp_retries2
+    value: '5'
+    state: present
+    reload: true
+
+- name: Increase inotify instances (prevents "too many open files" in large clusters)
+  sysctl:
+    name: fs.inotify.max_user_instances
+    value: '1024'
+    state: present
+    reload: true
+
+- name: Increase max inotify instances per user
+  sysctl:
+    name: user.max_inotify_instances
+    value: '512'
+    state: present
+    reload: true

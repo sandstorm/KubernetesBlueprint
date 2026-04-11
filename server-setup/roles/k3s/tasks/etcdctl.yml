@@ -1,0 +1,33 @@
+---
+- name: Download etcd archive
+  get_url:
+    url: https://github.com/etcd-io/etcd/releases/download/{{ etcdctl_version }}/etcd-{{ etcdctl_version }}-linux-amd64.tar.gz
+    checksum: sha256:{{ etcdctl_zip_checksum }}
+    dest: /root/etcd-{{ etcdctl_version }}.tar.gz
+    owner: root
+    group: root
+    mode: 0700
+
+- name: Create etcd extraction directory
+  file:
+    path: "/root/etcd-{{ etcdctl_version }}"
+    state: directory
+
+- name: Extract etcd archive
+  unarchive:
+    remote_src: true
+    src: /root/etcd-{{ etcdctl_version }}.tar.gz
+    dest: /root/etcd-{{ etcdctl_version }}
+    owner: root
+    group: root
+    mode: 0700
+  notify:
+    - restart k3s
+
+- name: Install etcdctl wrapper script
+  template:
+    src: etcdctl.sh.j2
+    dest: /usr/local/bin/etcdctl
+    owner: root
+    group: root
+    mode: 0755

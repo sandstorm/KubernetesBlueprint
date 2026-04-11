@@ -1,0 +1,7 @@
+---
+all:
+  hosts:
+    k3s-server:
+      ansible_host: 203.0.113.10    # <-- Replace with your server IP
+      ansible_user: root
+      ansible_port: 22
