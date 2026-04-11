@@ -12,6 +12,38 @@ This boilerplate is designed for small teams running Kubernetes without a dedica
 - **Local:** [Ansible](https://docs.ansible.com/ansible/latest/installation_guide/) installed on your machine (
   `pip install ansible`)
 
+## Quick Start
+
+```bash
+cd server-setup
+
+# 1. Create your inventory
+cp inventory/hosts.yml.example inventory/hosts.yml
+# Edit inventory/hosts.yml — set your server IP
+
+# 2. Create your configuration
+cp group_vars/all.yml.example group_vars/all.yml
+# Edit group_vars/all.yml — set k3s_version and k3s_token
+
+# 3. Run the playbook
+ansible-playbook playbook.yml
+```
+
+After the playbook completes, SSH into the server and verify:
+
+```bash
+kubectl get nodes
+```
+
+## What Gets Installed
+
+- **K3s binary** with checksum verification (downloaded from GitHub releases)
+- **systemd service** for automatic start/restart
+- **CLI tools:** `kubectl`, `crictl`, `ctr` (symlinked from K3s binary)
+- **etcdctl** wrapper for debugging the embedded etcd database (optional)
+- **Kernel tuning:** sysctl settings for large clusters and Elasticsearch workloads
+- **Rancher UI** with cert-manager and Let's Encrypt (optional)
+
 ## Network Architecture
 
 ### Recommended: Nodes Behind a Load Balancer (private-only)
@@ -48,29 +80,19 @@ internet traffic through an **external load balancer**. This is how our producti
         (e.g., 10.0.0.0/24)
 ```
 
-This works with a single node too — the load balancer simply forwards to one backend:
+This works with a single node too — the load balancer simply forwards to one backend.
 
-```
-              Internet
-                 │
-         ┌───────┴────────┐
-         │ Load Balancer  │
-         │ (Public IP)    │
-         │ 80/443 → Node  │
-         └───────┬────────┘
-                 │
-         ┌───────┴────────┐
-         │ Single Node    │
-         │ private only   │
-         │ 10.0.0.1       │
-         └────────────────┘
-```
+**What you need:**
 
-Most hosting providers offer load balancers that work with private networks:
+| What                    | Example           | Purpose                                                 |
+|-------------------------|-------------------|---------------------------------------------------------|
+| Private IP per node     | `10.0.0.1`        | All K3s communication (API, etcd, CNI overlay, ingress) |
+| Internal NIC name       | `ens20`, `eth1`   | For `--flannel-iface` so CNI uses the right interface   |
+| Load balancer public IP | `203.0.113.50`    | Single entry point for HTTP/HTTPS traffic               |
+| DNS name                | `app.example.com` | Points to the load balancer IP                          |
 
-- **Hetzner:** Cloud Load Balancer + Cloud Network or vSwitch
-- **Cloud providers (AWS, GCP, Azure, DO):** Network Load Balancer + VPC
-- **Bare metal:** HAProxy or nginx on a small dedicated VM, or a hardware load balancer
+You need a **shared internal network** between all nodes (and the load balancer). Most hosting providers offer this:
+Hetzner (vSwitch/Cloud Network), AWS/GCP/Azure/DO (VPC), or bare metal (dedicated VLAN).
 
 The load balancer forwards **port 80 and 443** to the nodes' internal IPs. SSH access goes through a bastion host or
 VPN — not through a public IP on the K3s nodes themselves. **You might manually need to configure a gateway for outbound network access.**
@@ -104,36 +126,16 @@ HTTP/HTTPS traffic still flows through the load balancer; the public IPs are onl
 
 **Make sure you protect the public Node IP addresses with a firewall.**
 
-### Key K3s Network Flags
+### Alternative: Public IPs Only (no load balancer)
 
-Use these `k3s_extra_args` flags to control networking:
+If your hosting provider doesn't offer load balancers or private networks, you can give nodes public IPs directly.
+This is simpler to set up but has trade-offs:
 
-- `--node-ip <PRIVATE_IP>` — tells K3s which IP to advertise for inter-node communication
-- `--flannel-iface <NIC>` — forces Flannel CNI to use the internal network interface (e.g., `ens20`)
-- `--tls-san <IP_OR_HOSTNAME>` — adds additional IPs/hostnames to the API server TLS certificate
+- The K3s API server and other ports are directly reachable from the internet (must be firewalled carefully)
+- Adding/replacing nodes requires DNS changes
+- Each node is independently exposed, increasing the attack surface
 
-See the [`k3s_extra_args` examples](#k3s_extra_args--common-patterns) below for concrete configurations.
-
-## IP Address Prerequisites
-
-### Recommended: Private Network + Load Balancer
-
-| What                    | Example           | Purpose                                                 |
-|-------------------------|-------------------|---------------------------------------------------------|
-| Private IP per node     | `10.0.0.1`        | All K3s communication (API, etcd, CNI overlay, ingress) |
-| Internal NIC name       | `ens20`, `eth1`   | For `--flannel-iface` so CNI uses the right interface   |
-| Load balancer public IP | `203.0.113.50`    | Single entry point for HTTP/HTTPS traffic               |
-| DNS name                | `app.example.com` | Points to the load balancer IP                          |
-
-You need a **shared internal network** between all nodes (and the load balancer). Most hosting providers offer this:
-
-- **Hetzner:** vSwitch (VLAN) or Cloud Network
-- **Cloud providers:** VPC / private network
-- **Bare metal:** dedicated VLAN or direct cabling
-
-SSH access: use a bastion/jump host on the same internal network, or a VPN (e.g., WireGuard).
-
-### Alternative: Public IPs (no load balancer)
+**What you need:**
 
 | What                | Example         | Purpose                                               |
 |---------------------|-----------------|-------------------------------------------------------|
@@ -143,105 +145,44 @@ SSH access: use a bastion/jump host on the same internal network, or a VPN (e.g.
 
 Optional: a **DNS name** pointing to the server (required if you enable Rancher with Let's Encrypt).
 
-### TLS SANs
+Even in this setup, inter-node communication (API, etcd, CNI) should still use the **internal network** if available.
 
-Add `--tls-san` for every IP or hostname you'll use to reach the API server. This ensures the K3s API certificate is
-valid for both internal and external access. Example:
+### Key K3s Network Flags
 
-```yaml
-# Node 1 (first server)
-k3s_extra_args: "--cluster-init --node-ip 10.0.0.1 --tls-san 10.0.0.1 --tls-san 203.0.113.10 --flannel-iface ens20"
+Use these `k3s_extra_args` flags to control networking:
 
-# Node 2 (joining server)
-k3s_extra_args: "--server https://10.0.0.1:6443 --tls-san 10.0.0.2 --tls-san 203.0.113.20 --flannel-iface ens20"
-```
+- `--node-ip <PRIVATE_IP>` — tells K3s which IP to advertise for inter-node communication
+- `--flannel-iface <NIC>` — forces Flannel CNI to use the internal network interface (e.g., `ens20`)
+- `--tls-san <IP_OR_HOSTNAME>` — adds additional IPs/hostnames to the API server TLS certificate (add one for every
+  IP or hostname you'll use to reach the API server)
+
+See the [`k3s_extra_args` examples](#k3s_extra_args--common-patterns) below for concrete configurations.
 
 ## Firewall Rules
 
 K3s manages its own iptables rules for pod networking. You only need to configure your **host-level or provider-level
 firewall** (Hetzner Firewall, cloud security groups, or `ufw`/`iptables` on the host).
 
-### Recommended Setup (private nodes + load balancer)
+**Inter-node ports (internal network only — never expose to internet):**
 
-In this setup, nodes have **no public IP**. The only internet-facing component is the load balancer.
+| Port      | Protocol | Purpose                                                        |
+|-----------|----------|----------------------------------------------------------------|
+| 6443      | TCP      | K3s API server                                                 |
+| 2379-2380 | TCP      | etcd (embedded, when using `--cluster-init`)                   |
+| 10250     | TCP      | Kubelet metrics                                                |
+| 8472      | UDP      | VXLAN overlay (Flannel, K3s default CNI)                       |
+| 51820     | UDP      | WireGuard (only if using `--flannel-backend=wireguard-native`) |
 
-**Load balancer (public-facing):**
+**Ingress ports (public-facing):**
 
-| Port | Protocol | Direction             | Purpose               |
-|------|----------|-----------------------|-----------------------|
-| 80   | TCP      | Internet → LB → Nodes | HTTP ingress traffic  |
-| 443  | TCP      | Internet → LB → Nodes | HTTPS ingress traffic |
+| Port | Protocol | Purpose               |
+|------|----------|-----------------------|
+| 80   | TCP      | HTTP ingress traffic  |
+| 443  | TCP      | HTTPS ingress traffic |
+| 22   | TCP      | SSH (if nodes have public IPs) |
 
-**Between nodes (internal network only — no internet exposure):**
-
-| Port      | Protocol | Direction           | Purpose                                                        |
-|-----------|----------|---------------------|----------------------------------------------------------------|
-| 6443      | TCP      | Between nodes       | K3s API server                                                 |
-| 2379-2380 | TCP      | Between servers     | etcd (embedded, when using `--cluster-init`)                   |
-| 10250     | TCP      | Between nodes       | Kubelet metrics                                                |
-| 8472      | UDP      | Between nodes       | VXLAN overlay (Flannel, K3s default CNI)                       |
-| 51820     | UDP      | Between nodes       | WireGuard (only if using `--flannel-backend=wireguard-native`) |
-| 22        | TCP      | Bastion/VPN → Nodes | SSH access                                                     |
-
-Since nodes are on a private network, you can allow all traffic between nodes on the internal network and block
-everything from the internet. This is the simplest and most secure firewall configuration.
-
-### Alternative Setup (public IPs on nodes)
-
-If nodes have public IPs, you must be more careful with firewall rules:
-
-**Public-facing (restrict to what's needed):**
-
-| Port | Protocol | Direction | Purpose                              |
-|------|----------|-----------|--------------------------------------|
-| 80   | TCP      | Inbound   | HTTP ingress traffic                 |
-| 443  | TCP      | Inbound   | HTTPS ingress traffic                |
-| 22   | TCP      | Inbound   | SSH access (or your custom SSH port) |
-
-**Internal network only (never expose to internet):**
-
-| Port      | Protocol | Direction       | Purpose                                                        |
-|-----------|----------|-----------------|----------------------------------------------------------------|
-| 6443      | TCP      | Between nodes   | K3s API server                                                 |
-| 2379-2380 | TCP      | Between servers | etcd (embedded, when using `--cluster-init`)                   |
-| 10250     | TCP      | Between nodes   | Kubelet metrics                                                |
-| 8472      | UDP      | Between nodes   | VXLAN overlay (Flannel, K3s default CNI)                       |
-| 51820     | UDP      | Between nodes   | WireGuard (only if using `--flannel-backend=wireguard-native`) |
-
-**Important:** Ports 6443, 2379-2380, 8472, and 10250 must **never** be exposed to the internet. Use your hosting
-provider's firewall or security groups to restrict them to the internal network only.
-
-## Quick Start
-
-```bash
-cd server-setup
-
-# 1. Create your inventory
-cp inventory/hosts.yml.example inventory/hosts.yml
-# Edit inventory/hosts.yml — set your server IP
-
-# 2. Create your configuration
-cp group_vars/all.yml.example group_vars/all.yml
-# Edit group_vars/all.yml — set k3s_version and k3s_token
-
-# 3. Run the playbook
-ansible-playbook playbook.yml
-```
-
-After the playbook completes, SSH into the server and verify:
-
-```bash
-kubectl get nodes
-```
-
-## What Gets Installed
-
-- **K3s binary** with checksum verification (downloaded from GitHub releases)
-- **systemd service** for automatic start/restart
-- **CLI tools:** `kubectl`, `crictl`, `ctr` (symlinked from K3s binary)
-- **etcdctl** wrapper for debugging the embedded etcd database (optional)
-- **Kernel tuning:** sysctl settings for large clusters and Elasticsearch workloads
-- **Rancher UI** with cert-manager and Let's Encrypt (optional)
+With private nodes behind a load balancer, the LB forwards 80/443 and you can allow all traffic between nodes on the
+internal network. With public IPs on nodes, you must firewall the inter-node ports above to the internal network only.
 
 ## Configuration Reference
 
@@ -289,13 +230,13 @@ k3s_extra_args: "--cluster-init --disable=traefik"
 **Multi-node — first server (initializes the cluster):**
 
 ```yaml
-k3s_extra_args: "--cluster-init --node-ip 10.0.0.1 --tls-san 10.0.0.1 --tls-san 203.0.113.10"
+k3s_extra_args: "--cluster-init --node-ip 10.0.0.1 --tls-san 10.0.0.1 --tls-san 203.0.113.10 --flannel-iface ens20"
 ```
 
 **Multi-node — joining servers:**
 
 ```yaml
-k3s_extra_args: "--server https://10.0.0.1:6443 --tls-san 203.0.113.20"
+k3s_extra_args: "--server https://10.0.0.1:6443 --tls-san 10.0.0.2 --tls-san 203.0.113.20 --flannel-iface ens20"
 ```
 
 **With Cilium CNI (advanced networking):**
@@ -313,7 +254,7 @@ k3s_extra_args: "--cluster-init --kubelet-arg=max-pods=250"
 For multi-node setups, use per-host variables in `inventory/hosts.yml` or separate host_vars files to give each node its
 own `k3s_extra_args`.
 
-## Enabling Rancher UI
+### Enabling Rancher UI
 
 [Rancher](https://rancher.com/) provides a web UI for managing your Kubernetes cluster. To enable it:
 
@@ -327,45 +268,58 @@ k3s_rancher_letsencrypt_email: "admin@example.com"
 This automatically deploys cert-manager and Rancher as Helm charts via K3s auto-deploy. Make sure your DNS points
 `k3s_rancher_hostname` to the server before running the playbook.
 
-## Security Notes
+### Security
 
 - **k3s_token:** Use [Ansible Vault](https://docs.ansible.com/ansible/latest/vault_guide/) in production:
   `ansible-vault encrypt_string 'your-token' --name 'k3s_token'`
 - **Private registry credentials:** Same recommendation — use Vault for `k3s_private_registry_password`
 - The K3s binary is downloaded with SHA256 checksum verification
 
-## Updating K3s
+## Operations
+
+### Updating K3s
 
 To update K3s to a new version:
 
-1. Change `k3s_version` in `group_vars/all.yml` (find versions
-   at [K3s releases](https://github.com/k3s-io/k3s/releases))
-2. Re-run the playbook: `ansible-playbook playbook.yml`
-3. The Ansible handler restarts K3s automatically. In multi-node setups, it restarts **one node at a time** (
+1. **Check release notes** at [K3s releases](https://github.com/k3s-io/k3s/releases) and the
+   [Kubernetes changelog](https://kubernetes.io/releases/). Look for removed/deprecated APIs and update your manifests
+   before upgrading.
+2. Change `k3s_version` in `group_vars/all.yml`
+3. Re-run the playbook: `ansible-playbook playbook.yml`
+4. The Ansible handler restarts K3s automatically. In multi-node setups, it restarts **one node at a time** (
    `throttle: 1`) to keep the cluster healthy.
-4. Verify: `kubectl get nodes` — the version column should show the new version.
+5. **Watch the upgrade:**
+   ```bash
+   # Watch all pods during the upgrade
+   kubectl get pods --all-namespaces -w
 
-**Recommendation:** In multi-node setups, test the update on a staging cluster first. K3s supports upgrading one minor
-version at a time (e.g., 1.32 → 1.33).
+   # After upgrade, check for broken pods
+   kubectl get pods --all-namespaces | grep CrashLoop
 
-## Backup & Restore
+   # Verify all nodes show the new version
+   kubectl get nodes
+   ```
+6. If pods are in `CrashLoopBackOff` after the upgrade, try deleting them — they'll be recreated by their controllers:
+   `kubectl delete pod <pod-name> -n <namespace>`
+
+**Recommendations:**
+- Upgrade one minor version at a time (e.g., 1.32 → 1.33), don't skip versions
+- In multi-node setups, test on a staging cluster first
+- If you use Rancher, check the [support matrix](https://www.suse.com/suse-rancher/support-matrix/) for version
+  compatibility between K3s and Rancher
+
+### Backup & Restore
 
 When using `--cluster-init` (the default), K3s runs an embedded etcd database that stores all cluster state.
+K3s automatically saves etcd snapshots to `/var/lib/rancher/k3s/server/db/snapshots/` (5 snapshots, every 12 hours).
 
-### Automatic Snapshots
-
-K3s automatically saves etcd snapshots to `/var/lib/rancher/k3s/server/db/snapshots/`. By default, it keeps 5 snapshots
-and creates a new one every 12 hours.
-
-### Manual Snapshot
-
-If this role installed etcdctl (`k3s_install_etcdctl: true`), you can create a snapshot manually:
+**Manual snapshot** (requires `k3s_install_etcdctl: true`):
 
 ```bash
 etcdctl snapshot save /tmp/etcd-backup.db
 ```
 
-### Restoring from Snapshot
+**Restoring from snapshot:**
 
 ```bash
 # Stop K3s
@@ -380,6 +334,33 @@ systemctl start k3s
 
 **Recommendation:** Automate backups with a cron job or a backup tool (e.g., borgbackup) that regularly copies the
 snapshots directory to offsite storage.
+
+### CI/CD Integration
+
+**Extracting kubeconfig** — to deploy from a CI/CD pipeline, copy the cluster's kubeconfig:
+
+```bash
+# On the server
+cat /etc/rancher/k3s/k3s.yaml
+```
+
+Replace the `server: https://127.0.0.1:6443` URL with the server's reachable IP or hostname. Store it as a CI/CD
+secret (e.g., `KUBECONFIG` file variable in GitLab CI, or a GitHub Actions secret).
+
+```yaml
+# Example GitLab CI usage
+deploy:
+  script:
+    - export KUBECONFIG=$KUBECONFIG_K3S
+    - kubectl apply -f manifests/
+```
+
+**Security tip:** Create a dedicated ServiceAccount with limited RBAC permissions for CI/CD instead of using the
+cluster-admin kubeconfig in production.
+
+**Private registry authentication** — if your CI/CD pipeline pushes images to a private registry, configure K3s to
+pull from it using the `k3s_private_registry_*` variables (see [Optional Variables](#optional-variables)). This writes
+`/etc/rancher/k3s/registries.yaml` which K3s uses for registry authentication.
 
 ## Troubleshooting
 
