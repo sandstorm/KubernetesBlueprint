@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+#MISE description="Create single-node k3s cluster on Hetzner Cloud (Variant 1: node + LB + firewall)"
+set -euo pipefail
+
+if [ ! -f .cluster.env ]; then
+  echo "Error: .cluster.env not found. Run 'mise run setup' first." >&2
+  exit 1
+fi
+source .cluster.env
+
+P="${CLUSTER_PREFIX}"
+
+hcloud context use "$HCLOUD_CONTEXT"
+
+echo ""
+gum style --bold "Creating Hetzner Cloud resources (prefix: ${P})"
+echo ""
+
+# --- Network ---
+if hcloud network describe "${P}-network" >/dev/null 2>&1; then
+  echo "  Network ${P}-network already exists, skipping"
+else
+  echo "→ Creating private network ${P}-network (10.208.183.0/24)..."
+  hcloud network create --name "${P}-network" --ip-range 10.208.183.0/24
+  hcloud network add-subnet "${P}-network" \
+    --network-zone eu-central \
+    --type server \
+    --ip-range 10.208.183.0/24
+fi
+
+# --- Firewall ---
+if hcloud firewall describe "${P}-firewall" >/dev/null 2>&1; then
+  echo "  Firewall ${P}-firewall already exists, skipping"
+else
+  echo "→ Creating firewall ${P}-firewall..."
+  hcloud firewall create --name "${P}-firewall"
+  hcloud firewall add-rule "${P}-firewall" \
+    --direction in --protocol tcp --port 22 \
+    --source-ips 0.0.0.0/0 --source-ips ::/0 \
+    --description "SSH"
+  hcloud firewall add-rule "${P}-firewall" \
+    --direction in --protocol tcp --port 80 \
+    --source-ips 0.0.0.0/0 --source-ips ::/0 \
+    --description "HTTP"
+  hcloud firewall add-rule "${P}-firewall" \
+    --direction in --protocol tcp --port 443 \
+    --source-ips 0.0.0.0/0 --source-ips ::/0 \
+    --description "HTTPS"
+fi
+
+# --- Server ---
+SERVER_CREATED=0
+if hcloud server describe "${P}-node-1" >/dev/null 2>&1; then
+  echo "  Server ${P}-node-1 already exists, skipping"
+else
+  echo "→ Creating server ${P}-node-1 (${SERVER_TYPE} in ${LOCATION})..."
+  SERVER_CREATED=1
+  hcloud server create \
+    --name "${P}-node-1" \
+    --type "${SERVER_TYPE}" \
+    --image "${OS_IMAGE}" \
+    --ssh-key "${SSH_KEY_NAME}" \
+    --network "${P}-network" \
+    --firewall "${P}-firewall" \
+    --location "${LOCATION}"
+fi
+
+NODE1_PUBLIC_IP=$(hcloud server describe "${P}-node-1" -o json | jq -r '.public_net.ipv4.ip')
+NODE1_PRIVATE_IP=$(hcloud server describe "${P}-node-1" -o json | jq -r '.private_net[0].ip')
+echo "  Node 1 public:  ${NODE1_PUBLIC_IP}"
+echo "  Node 1 private: ${NODE1_PRIVATE_IP}"
+
+# --- Load Balancer ---
+if hcloud load-balancer describe "${P}-lb" >/dev/null 2>&1; then
+  echo "  Load balancer ${P}-lb already exists, skipping"
+else
+  echo "→ Creating load balancer ${P}-lb..."
+  hcloud load-balancer create \
+    --name "${P}-lb" \
+    --type lb11 \
+    --location "${LOCATION}"
+
+  hcloud load-balancer attach-to-network "${P}-lb" \
+    --network "${P}-network" \
+    --ip 10.208.183.100
+
+  hcloud load-balancer add-target "${P}-lb" \
+    --server "${P}-node-1" \
+    --use-private-ip
+
+  hcloud load-balancer add-service "${P}-lb" \
+    --protocol tcp --listen-port 80 --destination-port 80
+  hcloud load-balancer add-service "${P}-lb" \
+    --protocol tcp --listen-port 443 --destination-port 443
+fi
+
+LB_PUBLIC_IP=$(hcloud load-balancer describe "${P}-lb" -o json | jq -r '.public_net.ipv4.ip')
+echo "  Load Balancer:  ${LB_PUBLIC_IP}"
+
+if [ "$SERVER_CREATED" = "1" ]; then
+  gum spin --title "Waiting 30s for server to finish booting..." -- sleep 30
+fi
+
+# --- Generate Ansible files ---
+echo "→ Generating server-setup/inventory/hosts.yml..."
+mkdir -p server-setup/inventory
+cat > server-setup/inventory/hosts.yml <<INVENTORY
+---
+all:
+  hosts:
+    ${P}-node-1:
+      ansible_host: ${NODE1_PUBLIC_IP}
+      ansible_user: root
+      ansible_port: 22
+      k3s_private_ip: "${NODE1_PRIVATE_IP}"
+      k3s_extra_args: "--cluster-init --tls-san ${NODE1_PUBLIC_IP}"
+INVENTORY
+
+echo "→ Generating server-setup/group_vars/all.yml..."
+mkdir -p server-setup/group_vars
+cat > server-setup/group_vars/all.yml <<GROUPVARS
+---
+k3s_version: "${K3S_VERSION}"
+k3s_token: "${K3S_TOKEN}"
+GROUPVARS
+
+echo ""
+gum style --foreground 2 "✓ Infrastructure ready!"
+echo ""
+echo "  Node 1:        ssh root@${NODE1_PUBLIC_IP}"
+echo "  Load Balancer: ${LB_PUBLIC_IP} (ports 80, 443)"
+echo ""
+echo "Run 'ssh root@${NODE1_PUBLIC_IP}' to connect initially."
+echo "Run 'mise run hetzner:ansible' to install k3s."

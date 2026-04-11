@@ -97,6 +97,19 @@
   include_tasks: etcdctl.yml
   when: k3s_install_etcdctl | bool
 
+# --- Private network interface detection (optional) ---
+
+- name: Detect private network interface for k3s_private_ip
+  shell: "ip -o -4 addr show | awk '/{{ k3s_private_ip }}/{print $2}'"
+  register: _k3s_iface
+  changed_when: false
+  when: k3s_private_ip is defined
+
+- name: Set k3s_node_iface fact
+  set_fact:
+    k3s_node_iface: "{{ _k3s_iface.stdout | trim }}"
+  when: k3s_private_ip is defined
+
 # --- systemd service ---
 
 - name: Deploy K3s systemd service
@@ -110,11 +123,26 @@
   notify:
     - restart k3s
 
-- name: Enable and start K3s
+- name: Enable K3s service
   systemd:
     name: k3s
-    state: started
     enabled: yes
+    daemon_reload: yes
+  become: yes
+
+- name: Start K3s service (non-blocking — Type=notify with TimeoutStartSec=0 would hang forever)
+  command: systemctl start k3s
+  async: 600
+  poll: 0
+  become: yes
+
+- name: Wait for K3s API server to accept connections (timeout 5 min)
+  wait_for:
+    host: 127.0.0.1
+    port: 6443
+    timeout: 300
+    delay: 10
+    state: started
   become: yes
 
 # --- Post-install ---
@@ -154,3 +182,23 @@
     value: '512'
     state: present
     reload: true
+
+# --- Fetch kubeconfig locally ---
+
+- name: Fetch kubeconfig from server
+  fetch:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: "{{ playbook_dir }}/kubeconfig"
+    flat: yes
+  run_once: true
+  when: k3s_mode == "server"
+
+- name: Replace loopback address with reachable host in kubeconfig
+  replace:
+    path: "{{ playbook_dir }}/kubeconfig"
+    regexp: 'https://127\.0\.0\.1:6443'
+    replace: "https://{{ ansible_host }}:6443"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: k3s_mode == "server"

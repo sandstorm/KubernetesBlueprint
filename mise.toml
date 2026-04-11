@@ -1,0 +1,4 @@
+[tools]
+gum = "latest"
+"aqua:hetznercloud/cli" = "latest"
+jq = "latest"

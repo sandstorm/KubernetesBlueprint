@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+#MISE description="Interactive cluster config → .cluster.env"
+set -euo pipefail
+
+# Load existing values as defaults
+[ -f .cluster.env ] && source .cluster.env
+
+echo ""
+gum style --bold --foreground 212 "K3s Cluster Setup"
+echo ""
+
+# hcloud context
+CONTEXTS=$(hcloud context list -o noheader -o columns=name 2>/dev/null || echo "")
+if [ -n "$CONTEXTS" ]; then
+  HCLOUD_CONTEXT=$(echo "$CONTEXTS" | gum choose --header "Select hcloud context" --selected="${HCLOUD_CONTEXT:-}")
+else
+  HCLOUD_CONTEXT=$(gum input --placeholder "hcloud context name" --value "${HCLOUD_CONTEXT:-}")
+fi
+
+# Switch context so we can list SSH keys
+hcloud context use "$HCLOUD_CONTEXT" >/dev/null 2>&1 || true
+
+# Cluster prefix
+CLUSTER_PREFIX=$(gum input --header "Resource name prefix (e.g. k3s → k3s-node-1, k3s-lb)" \
+  --placeholder "k3s" --value "${CLUSTER_PREFIX:-k3s}")
+
+# SSH key
+SSH_KEYS=$(hcloud ssh-key list -o noheader -o columns=name 2>/dev/null || echo "")
+if [ -n "$SSH_KEYS" ]; then
+  SSH_KEY_NAME=$(echo "$SSH_KEYS" | gum choose --header "Select SSH key" --selected="${SSH_KEY_NAME:-}")
+else
+  SSH_KEY_NAME=$(gum input --header "SSH key name in hcloud project" \
+    --placeholder "my-ssh-key" --value "${SSH_KEY_NAME:-}")
+fi
+
+# Location (asked first so we can show availability per location)
+LOCATION=$(gum choose --header "Datacenter location" \
+  --selected="${LOCATION:-fsn1}" \
+  nbg1 fsn1 hel1 ash hil)
+
+# Server type — fetched live from API, sorted by price, availability for selected location
+AVAIL_IDS=$(hcloud datacenter list -o json | jq --arg loc "$LOCATION" \
+  '[.[] | select(.location.name == $loc)][0].server_types.available')
+SERVER_TYPE_TABLE=$(hcloud server-type list -o json | jq -r \
+  --argjson avail "$AVAIL_IDS" \
+  '[.[] | select(.deprecated != true and .architecture != "arm" and .memory > 2)] |
+   sort_by(.prices[0].price_monthly.gross | tonumber) |
+   .[] |
+   "\(.name),\(.cores) vCPU,\(.cpu_type),\(.memory | floor) GB,~€\(.prices[0].price_monthly.gross | tonumber | round)/mo,\(if (.id as $id | $avail | map(. == $id) | any) then "✓" else "✗" end)"')
+SERVER_TYPE=$(echo "$SERVER_TYPE_TABLE" \
+  | gum table --separator "," --columns "Type,Cores,CPU,RAM,Price/mo,In stock" \
+  | cut -d',' -f1 | xargs)
+
+# K3s version
+K3S_VERSION=$(gum input --header "K3s version (see github.com/k3s-io/k3s/releases)" \
+  --placeholder "v1.33.6+k3s1" --value "${K3S_VERSION:-v1.33.6+k3s1}")
+
+# K3s token
+if gum confirm "Auto-generate K3S_TOKEN?"; then
+  K3S_TOKEN=$(openssl rand -hex 32)
+  echo "Generated token."
+else
+  K3S_TOKEN=$(gum input --header "K3s cluster token" \
+    --placeholder "secret token" --value "${K3S_TOKEN:-}" --password)
+fi
+
+# Write config
+cat > .cluster.env <<EOF
+HCLOUD_CONTEXT="${HCLOUD_CONTEXT}"
+CLUSTER_PREFIX="${CLUSTER_PREFIX}"
+SSH_KEY_NAME="${SSH_KEY_NAME}"
+SERVER_TYPE="${SERVER_TYPE}"
+LOCATION="${LOCATION}"
+OS_IMAGE="ubuntu-24.04"
+K3S_VERSION="${K3S_VERSION}"
+K3S_TOKEN="${K3S_TOKEN}"
+EOF
+
+echo ""
+gum style --foreground 2 "✓ Config saved to .cluster.env"
+echo ""
+echo "Next steps:"
+echo "  mise run hetzner:create    # Create Hetzner infrastructure"
+echo "  mise run hetzner:ansible   # Install k3s via Ansible"

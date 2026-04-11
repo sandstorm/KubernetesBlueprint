@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#MISE description="Destroy all Hetzner Cloud resources for this cluster"
+set -euo pipefail
+
+if [ ! -f .cluster.env ]; then
+  echo "Error: .cluster.env not found." >&2
+  exit 1
+fi
+source .cluster.env
+
+P="${CLUSTER_PREFIX}"
+
+hcloud context use "$HCLOUD_CONTEXT"
+
+echo ""
+gum style --bold --foreground 196 "This will destroy all ${P}-* resources in hcloud context '${HCLOUD_CONTEXT}'"
+echo ""
+
+gum confirm "Proceed with destruction?" || { echo "Aborted."; exit 0; }
+
+echo ""
+
+# Servers (node-2 first so node-1 can still serve traffic during teardown)
+for SERVER in "${P}-node-2" "${P}-node-1"; do
+  if hcloud server describe "$SERVER" >/dev/null 2>&1; then
+    echo "→ Deleting server ${SERVER}..."
+    hcloud server delete "$SERVER"
+  else
+    echo "  ${SERVER}: not found, skipping"
+  fi
+done
+
+# Load balancer
+if hcloud load-balancer describe "${P}-lb" >/dev/null 2>&1; then
+  echo "→ Deleting load balancer ${P}-lb..."
+  hcloud load-balancer delete "${P}-lb"
+else
+  echo "  ${P}-lb: not found, skipping"
+fi
+
+# Firewall (must delete after servers)
+if hcloud firewall describe "${P}-firewall" >/dev/null 2>&1; then
+  echo "→ Deleting firewall ${P}-firewall..."
+  hcloud firewall delete "${P}-firewall"
+else
+  echo "  ${P}-firewall: not found, skipping"
+fi
+
+# Network (must delete after servers and LB)
+if hcloud network describe "${P}-network" >/dev/null 2>&1; then
+  echo "→ Deleting network ${P}-network..."
+  hcloud network delete "${P}-network"
+else
+  echo "  ${P}-network: not found, skipping"
+fi
+
+echo ""
+gum style --foreground 2 "✓ All resources destroyed."

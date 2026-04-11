@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#MISE description="Run Ansible playbook against current inventory (pass extra args after --)"
+set -euo pipefail
+
+if [ ! -f .cluster.env ]; then
+  echo "Error: .cluster.env not found. Run 'mise run setup' first." >&2
+  exit 1
+fi
+source .cluster.env
+
+if [ ! -f server-setup/inventory/hosts.yml ]; then
+  echo "Error: server-setup/inventory/hosts.yml not found." >&2
+  echo "Run 'mise run hcloud-create' first." >&2
+  exit 1
+fi
+
+cd server-setup
+ansible-playbook playbook.yml "$@"

@@ -22,14 +22,24 @@
 # K3s mode: "server" (control plane + worker) or "agent" (worker only)
 k3s_mode: "server"
 
+# Private IP of this node on the internal/private network.
+# When set, Ansible auto-detects the corresponding NIC and injects into the k3s service:
+#   --node-ip  : always — controls which IP K3s advertises for inter-node traffic and
+#                embedded etcd peer communication
+#   --flannel-iface : only when Flannel is active (i.e. --flannel-backend=none is NOT set)
+#                     — forces Flannel VXLAN to use the private network interface
+# Set this per-host in inventory when nodes have a dedicated private network.
+# k3s_private_ip:
+
 # Additional K3s CLI arguments. This is the main knob for cluster configuration.
 # Default enables embedded etcd for a single-node setup.
+# Note: --node-ip and --flannel-iface are injected automatically when k3s_private_ip is set.
 #
 # Common patterns:
 #   Single node:           "--cluster-init"
 #   Disable built-in ingress: "--cluster-init --disable=traefik"
-#   Multi-node first node: "--cluster-init --node-ip <PRIVATE_IP> --tls-san <PUBLIC_IP>"
-#   Multi-node join node:  "--server https://<FIRST_NODE_IP>:6443 --tls-san <PUBLIC_IP>"
+#   Multi-node first node: "--cluster-init --tls-san <PUBLIC_IP>"
+#   Multi-node join node:  "--server https://<FIRST_NODE_PRIVATE_IP>:6443 --tls-san <PUBLIC_IP>"
 #   With Cilium CNI:       "--cluster-init --disable=traefik --disable-network-policy --flannel-backend=none"
 #   High pod density:      add "--kubelet-arg=max-pods=250"
 k3s_extra_args: "--cluster-init"
