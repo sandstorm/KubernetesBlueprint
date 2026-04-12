@@ -96,7 +96,7 @@ kubectl get nodes
 - **CLI tools:** `kubectl`, `crictl`, `ctr` (symlinked from K3s binary)
 - **etcdctl** wrapper for debugging the embedded etcd database (optional)
 - **Kernel tuning:** sysctl settings for large clusters and Elasticsearch workloads
-- **Rancher UI** with cert-manager and Let's Encrypt (optional)
+- **Rancher UI** via `mise run cluster-setup:rancher` (optional, post-cluster)
 
 ## Network Architecture
 
@@ -238,11 +238,6 @@ internal network. With public IPs on nodes, you must firewall the inter-node por
 | `k3s_mode`                      | `"server"`              | `"server"` (control plane + worker) or `"agent"` (worker only)                                         |
 | `k3s_private_ip`                | —                       | Private IP of this node; auto-injects `--node-ip` (always) and `--flannel-iface` (when Flannel active) |
 | `k3s_extra_args`                | `"--cluster-init"`      | Additional K3s CLI arguments (see below)                                                               |
-| `k3s_install_rancher`           | `false`                 | Deploy Rancher UI + cert-manager                                                                       |
-| `k3s_rancher_hostname`          | —                       | Hostname for Rancher (required when Rancher enabled)                                                   |
-| `k3s_rancher_letsencrypt_email` | —                       | Email for Let's Encrypt (required when Rancher enabled)                                                |
-| `k3s_rancher_version`           | `"2.12.3"`              | Rancher Helm chart version                                                                             |
-| `k3s_certmanager_version`       | `"1.19.0"`              | cert-manager Helm chart version                                                                        |
 | `k3s_install_etcdctl`           | `true`                  | Install etcdctl debugging tool                                                                         |
 | `etcdctl_version`               | `"v3.5.0"`              | etcdctl version                                                                                        |
 | `k3s_private_registry_host`     | —                       | Private Docker registry hostname                                                                       |
@@ -299,21 +294,26 @@ own `k3s_extra_args`.
 
 ### Enabling Rancher UI
 
-[Rancher](https://rancher.com/) provides a web UI for managing your Kubernetes cluster. To enable it:
+[Rancher](https://rancher.com/) provides a web UI for managing your Kubernetes cluster. It is deployed as an optional post-cluster step after cert-manager and ClusterIssuers are running.
 
-```yaml
-# group_vars/all.yml
-k3s_install_rancher: true
-k3s_rancher_hostname: "rancher.example.com"
-k3s_rancher_letsencrypt_email: "admin@example.com"
+1. Point your DNS to the server before deploying.
+2. Set `RANCHER_HOSTNAME` in `.cluster.env`:
+
+```bash
+RANCHER_HOSTNAME="rancher.example.com"
 ```
 
-This automatically deploys cert-manager and Rancher as Helm charts via K3s auto-deploy. Make sure your DNS points
-`k3s_rancher_hostname` to the server before running the playbook.
+3. Run `cluster-setup:apply` first (if not done already), then:
 
-> **Rancher licensing notice:** Patch releases up to `.3` (e.g., `v2.10.0`–`v2.10.3`) are labeled
+```bash
+mise run cluster-setup:rancher
+```
+
+This applies `cluster-setup/50_rancher.yaml` which deploys Rancher via the K3s Helm controller. TLS is handled automatically by cert-manager using the `letsencrypt-prod` ClusterIssuer.
+
+> **Rancher licensing notice:** Patch releases up to `.3` (e.g., `v2.12.0`–`v2.12.3`) are labeled
 > *"Community and Prime"* — freely available. From `.4` onwards they are *"Prime version"* only and require a
-> commercial subscription. Pin `k3s_rancher_version` to `.3` of your chosen minor version to stay on the free tier.
+> commercial subscription. Pin the version in `cluster-setup/50_rancher.yaml` to `.3` of your chosen minor version to stay on the free tier.
 > See the [Rancher releases page](https://github.com/rancher/rancher/releases) for the exact label on each release.
 
 ### Security
@@ -469,7 +469,7 @@ The default CNI is Flannel (k3s default). Cilium provides NetworkPolicy enforcem
 - [ ] If nodes are stuck after upgrade, reboot them one at a time
 - [ ] Update `K3S_VERSION` in `group_vars/all.yml` to match the installed version (prevents accidental downgrade on next Ansible run)
 
-**Rancher (if enabled):** Check the [support matrix](https://www.suse.com/suse-rancher/support-matrix/) for compatibility. Patch releases up to `.3` (e.g., `v2.12.3`) are free community editions; `.4`+ require a Rancher Prime subscription.
+**Rancher (if deployed):** Check the [support matrix](https://www.suse.com/suse-rancher/support-matrix/) for compatibility. Update the version in `cluster-setup/50_rancher.yaml` and re-run `mise run cluster-setup:rancher`. Patch releases up to `.3` (e.g., `v2.12.3`) are free community editions; `.4`+ require a Rancher Prime subscription.
 
 ### Updating Cluster Components (Traefik, cert-manager, etc.)
 

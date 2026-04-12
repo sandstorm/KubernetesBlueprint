@@ -45,20 +45,6 @@ k3s_mode: "server"
 k3s_extra_args: "--cluster-init"
 
 # ---------------------
-# Rancher UI (optional)
-# ---------------------
-
-# Set to true to deploy Rancher + cert-manager via auto-deployed Helm charts
-k3s_install_rancher: false
-
-# Required when k3s_install_rancher is true:
-# k3s_rancher_hostname: "rancher.example.com"
-# k3s_rancher_letsencrypt_email: "admin@example.com"
-
-k3s_rancher_version: "2.12.3"
-k3s_certmanager_version: "1.19.0"
-
-# ---------------------
 # etcdctl (optional)
 # ---------------------
 

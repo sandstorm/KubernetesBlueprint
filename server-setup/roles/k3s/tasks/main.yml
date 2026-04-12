@@ -12,14 +12,6 @@
       - k3s_token is defined and k3s_token | length > 0
     fail_msg: "k3s_version and k3s_token must be set. See defaults/main.yml for details."
 
-- name: Validate Rancher variables (when enabled)
-  ansible.builtin.assert:
-    that:
-      - k3s_rancher_hostname is defined and k3s_rancher_hostname | length > 0
-      - k3s_rancher_letsencrypt_email is defined and k3s_rancher_letsencrypt_email | length > 0
-    fail_msg: "k3s_rancher_hostname and k3s_rancher_letsencrypt_email must be set when k3s_install_rancher is true."
-  when: k3s_install_rancher | bool
-
 # --- K3s binary ---
 
 - name: Download K3s binary (x86_64)
@@ -64,12 +56,6 @@
   when: k3s_private_registry_host is defined
   notify:
     - restart k3s
-
-# --- Rancher (optional) ---
-
-- name: Deploy Rancher + cert-manager
-  include_tasks: rancher.yml
-  when: k3s_install_rancher | bool
 
 # --- CLI symlinks ---
 

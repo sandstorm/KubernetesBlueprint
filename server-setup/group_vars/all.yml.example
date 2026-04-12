@@ -21,14 +21,6 @@ k3s_token: "CHANGE_ME"
 # Additional K3s CLI arguments (see README.md for common patterns)
 # k3s_extra_args: "--cluster-init"
 
-# ---- Rancher UI (optional) ---------------------------------------------------
-
-# k3s_install_rancher: true
-# k3s_rancher_hostname: "rancher.example.com"
-# k3s_rancher_letsencrypt_email: "admin@example.com"
-# k3s_rancher_version: "2.12.3"
-# k3s_certmanager_version: "1.19.0"
-
 # ---- etcdctl (optional) ------------------------------------------------------
 
 # k3s_install_etcdctl: true

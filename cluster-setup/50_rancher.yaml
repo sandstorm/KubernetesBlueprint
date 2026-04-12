@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cattle-system
+
+---
+# Rancher UI — web interface for managing your Kubernetes cluster.
+# Applied AFTER cert-manager and ClusterIssuers are fully running.
+# See .mise/tasks/cluster-setup/apply for the ordering logic.
+#
+# The hostname and email are substituted from .cluster.env at apply time.
+# Set RANCHER_HOSTNAME in .cluster.env to enable Rancher deployment.
+#
+# LICENSING: Patch releases up to .3 (e.g. v2.12.3) are free community editions.
+# From .4 onwards a Rancher Prime subscription is required.
+# See: https://github.com/rancher/rancher/releases
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: rancher
+  namespace: kube-system
+spec:
+  repo: https://releases.rancher.com/server-charts/latest
+  chart: rancher
+  targetNamespace: cattle-system
+  # https://artifacthub.io/packages/helm/rancher-latest/rancher
+  version: '2.12.3'
+  set:
+    hostname: "${RANCHER_HOSTNAME}"
+    ingress.tls.source: "letsEncrypt"
+    letsEncrypt.email: "${CERT_MANAGER_EMAIL}"
+    replicas: 1
