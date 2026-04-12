@@ -1,0 +1,39 @@
+# CiliumLocalRedirectPolicy — redirect traffic arriving at a node's IP on port 80/443
+# to the local Traefik pod via eBPF, preserving the original client IP.
+#
+# Applied once per node by cluster-setup:apply using envsubst.
+# Variables substituted at apply time: NODE_NAME, NODE_IP
+#
+# Why not hostPort?
+# Traefik runs as a ClusterIP DaemonSet (no hostPort). Instead of binding ports on the
+# host network namespace, Cilium intercepts the traffic in the eBPF data path before it
+# ever reaches the kernel's network stack and redirects it to the local Traefik pod.
+# This is more efficient (no iptables chains) and preserves client IPs without SNAT.
+#
+# Why not --disable=servicelb?
+# Disabling servicelb (k3s's built-in load balancer controller) breaks the Rancher
+# management UI (white page). We keep servicelb running but don't create any LoadBalancer
+# services, so it sits idle. CiliumLocalRedirectPolicy handles ingress routing instead.
+apiVersion: cilium.io/v2
+kind: CiliumLocalRedirectPolicy
+metadata:
+  name: traefik-redirect-${NODE_NAME}
+  namespace: kube-system
+spec:
+  redirectFrontend:
+    addressMatcher:
+      ip: "${NODE_IP}"
+      toPorts:
+        - port: "80"
+          protocol: TCP
+        - port: "443"
+          protocol: TCP
+  redirectBackend:
+    localEndpointSelector:
+      matchLabels:
+        app.kubernetes.io/name: traefik
+    toPorts:
+      - port: "80"
+        protocol: TCP
+      - port: "443"
+        protocol: TCP

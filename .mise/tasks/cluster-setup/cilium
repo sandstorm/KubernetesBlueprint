@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+#MISE description="Install Cilium CNI via Helm (optional) — run BEFORE cluster-setup:apply when using Cilium"
+set -euo pipefail
+
+if [ ! -f .cluster.env ]; then
+  gum style --foreground 1 "Error: .cluster.env not found. Run 'mise run hetzner:setup' first."
+  exit 1
+fi
+source .cluster.env
+
+export KUBECONFIG="$(pwd)/server-setup/kubeconfig"
+
+if [ -z "${CILIUM_VERSION:-}" ]; then
+  gum style --foreground 1 "Error: CILIUM_VERSION is not set in .cluster.env"
+  echo "  Add: CILIUM_VERSION=\"1.18.5\""
+  echo ""
+  echo "  Also ensure k3s was started with --flannel-backend=none --disable-network-policy"
+  echo "  in k3s_extra_args (server-setup/group_vars/all.yml) and ansible was re-run."
+  exit 1
+fi
+
+# --- Show cluster info as safeguard ---
+CLUSTER_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || echo "unknown")
+CLUSTER_NAME=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null || echo "unknown")
+CURRENT_CONTEXT=$(kubectl config current-context 2>/dev/null || echo "unknown")
+
+echo ""
+gum style --bold "Cilium CNI Installation"
+echo ""
+gum style \
+  "  Cluster:    $(gum style --foreground 3 "${CLUSTER_NAME}")" \
+  "  Server:     $(gum style --foreground 3 "${CLUSTER_SERVER}")" \
+  "  Context:    $(gum style --foreground 3 "${CURRENT_CONTEXT}")" \
+  "  Version:    $(gum style --foreground 3 "${CILIUM_VERSION}")" \
+  "  Kubeconfig: $(gum style --foreground 3 "${KUBECONFIG}")"
+echo ""
+
+gum confirm "Install Cilium ${CILIUM_VERSION} on this cluster?" || exit 0
+
+echo ""
+
+gum spin --title "Adding Cilium Helm repo..." -- \
+  bash -c "helm repo add cilium https://helm.cilium.io/ >/dev/null 2>&1 && helm repo update cilium >/dev/null 2>&1"
+gum style --foreground 2 "  ✓ Helm repo ready"
+
+gum spin --title "Installing Cilium ${CILIUM_VERSION}..." -- \
+  helm upgrade --install cilium cilium/cilium \
+    --version "${CILIUM_VERSION}" \
+    --namespace kube-system \
+    --set kubeProxyReplacement=true \
+    --set ipam.mode=kubernetes \
+    --set hubble.relay.enabled=true \
+    --set hubble.ui.enabled=true \
+    --set localRedirectPolicy=true \
+    --set operator.replicas=1
+gum style --foreground 2 "  ✓ Cilium installed"
+
+echo ""
+gum style --bold --foreground 2 "✓ Cilium installation initiated!"
+echo ""
+echo "Wait for Cilium to become ready, then run cluster-setup:apply:"
+echo ""
+echo "  export KUBECONFIG=server-setup/kubeconfig"
+echo "  kubectl get pods -n kube-system | grep cilium"
+echo "  cilium status   # requires cilium CLI"
+echo ""
+echo "Once nodes are Ready:"
+echo "  mise run cluster-setup:apply"

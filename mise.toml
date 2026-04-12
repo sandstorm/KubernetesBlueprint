@@ -5,3 +5,5 @@ jq = "latest"
 kubectl = "latest"
 helm = "latest"
 envsubst = "latest"
+cilium-cli = "latest"
+

@@ -3,13 +3,10 @@
 # k3s v1.33.x ships Traefik v3.6.x as a HelmChart. HelmChartConfig patches its
 # values without replacing it — no need to disable or redeploy.
 #
-# Traffic path: Hetzner LB → node private IP → hostPort → Traefik (DaemonSet)
-# Each node binds ports 80/443 directly via hostPort, so the LB can reach
-# Traefik on any node without a separate LoadBalancer service.
-#
-# CILIUM UPGRADE PATH:
-# Switch to service.type=ClusterIP (remove hostPort) + CiliumLocalRedirectPolicy
-# per node IP. See README for instructions.
+# Traffic path: Hetzner LB → node private IP → CiliumLocalRedirectPolicy → Traefik pod (local node)
+# Traefik runs as a ClusterIP DaemonSet (no hostPort). Cilium intercepts traffic arriving at each
+# node's IP on port 80/443 via eBPF and redirects it to the local Traefik pod — preserving the
+# original client IP. CiliumLocalRedirectPolicy resources are applied by cluster-setup:apply.
 #
 # PROXY PROTOCOL (optional — requires enabling on the Hetzner LB too):
 # Uncomment proxyProtocol.trustedIPs in the ports section below.
@@ -44,15 +41,15 @@ spec:
         enabled: true
 
     ports:
+      # No hostPort here — CiliumLocalRedirectPolicy handles routing from the node's IP to Traefik.
+      # Applied per-node by cluster-setup:apply. See README for details.
       web:
         port: 80
-        hostPort: 80
         # proxyProtocol:
         #   trustedIPs:
         #     - "10.208.183.0/24"   # Hetzner private network (LB IP range)
       websecure:
         port: 443
-        hostPort: 443
         # proxyProtocol:
         #   trustedIPs:
         #     - "10.208.183.0/24"

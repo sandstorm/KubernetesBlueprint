@@ -19,7 +19,10 @@ k3s_token: "CHANGE_ME"
 # k3s_mode: "server"
 
 # Additional K3s CLI arguments (see README.md for common patterns)
-# k3s_extra_args: "--cluster-init"
+# Cilium is the default CNI in this boilerplate — Flannel is disabled.
+# NOTE: --disable=servicelb is intentionally NOT included. Disabling servicelb breaks the Rancher
+#       management UI. Instead, simply avoid creating LoadBalancer services — servicelb sits idle.
+k3s_extra_args: "--cluster-init --disable-network-policy --flannel-backend=none"
 
 # ---- etcdctl (optional) ------------------------------------------------------
 

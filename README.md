@@ -34,13 +34,22 @@ mise run hetzner:create
 # 4. Install k3s via Ansible
 mise run hetzner:ansible
 
+# 5. Install Cilium CNI (required before cluster-setup:apply)
+mise run cluster-setup:cilium
+
+# 6. Deploy cluster services (Traefik, cert-manager, storage, priority classes)
+mise run cluster-setup:apply
+
 # --- Optional: add a second node (Variant 2) ---
 
-# 5a. Create second server on Hetzner + regenerate inventory
+# 7a. Create second server on Hetzner + regenerate inventory
 mise run hetzner:add-node
 
-# 5b. Install k3s on the new node only
+# 7b. Install k3s on the new node only
 mise run hetzner:ansible -- --limit <PREFIX>-node-2
+
+# 7c. Re-apply cluster-setup to create CLRP for the new node
+mise run cluster-setup:apply
 
 # Tear everything down
 mise run hetzner:destroy
@@ -96,6 +105,7 @@ kubectl get nodes
 - **CLI tools:** `kubectl`, `crictl`, `ctr` (symlinked from K3s binary)
 - **etcdctl** wrapper for debugging the embedded etcd database (optional)
 - **Kernel tuning:** sysctl settings for large clusters and Elasticsearch workloads
+- **Cilium CNI** via `mise run cluster-setup:cilium` (required, before cluster-setup:apply)
 - **Rancher UI** via `mise run cluster-setup:rancher` (optional, post-cluster)
 
 ## Network Architecture
@@ -183,10 +193,9 @@ HTTP/HTTPS traffic still flows through the load balancer; the public IPs are onl
 ### Key K3s Network Flags
 
 - `k3s_private_ip` (Ansible variable, per-host) — set to the node's private IP. Ansible auto-detects the NIC
-  and injects `--node-ip` (always) and `--flannel-iface` (when Flannel is active) into the k3s service.
-  `--node-ip` controls inter-node communication, etcd peer addresses, and CNI overlay routing.
-  `--flannel-iface` forces Flannel VXLAN to use the private network interface instead of the public one.
-  When using a non-Flannel CNI (`--flannel-backend=none`), only `--node-ip` is injected.
+  and injects `--node-ip` into the k3s service. `--node-ip` controls inter-node communication, etcd peer
+  addresses, and CNI overlay routing. With Cilium (`--flannel-backend=none`), only `--node-ip` is injected
+  (no `--flannel-iface` needed — Cilium picks up the correct interface via the node IP).
 - `--tls-san <IP_OR_HOSTNAME>` (in `k3s_extra_args`) — adds additional IPs/hostnames to the API server TLS
   certificate (add one for every IP or hostname you'll use to reach the API server)
 
@@ -199,12 +208,11 @@ firewall** (Hetzner Firewall, cloud security groups, or `ufw`/`iptables` on the 
 
 **Inter-node ports (internal network only):**
 
-| Port      | Protocol | Purpose                                                        |
-|-----------|----------|----------------------------------------------------------------|
-| 2379-2380 | TCP      | etcd (embedded, when using `--cluster-init`)                   |
-| 10250     | TCP      | Kubelet metrics                                                |
-| 8472      | UDP      | VXLAN overlay (Flannel, K3s default CNI)                       |
-| 51820     | UDP      | WireGuard (only if using `--flannel-backend=wireguard-native`) |
+| Port      | Protocol | Purpose                                                     |
+|-----------|----------|-------------------------------------------------------------|
+| 2379-2380 | TCP      | etcd (embedded, when using `--cluster-init`)                |
+| 10250     | TCP      | Kubelet metrics                                             |
+| 8472      | UDP      | VXLAN overlay (Cilium default tunnel mode, inter-node pods) |
 
 **Public-facing ports:**
 
@@ -237,7 +245,7 @@ internal network. With public IPs on nodes, you must firewall the inter-node por
 |---------------------------------|-------------------------|--------------------------------------------------------------------------------------------------------|
 | `k3s_mode`                      | `"server"`              | `"server"` (control plane + worker) or `"agent"` (worker only)                                         |
 | `k3s_private_ip`                | —                       | Private IP of this node; auto-injects `--node-ip` (always) and `--flannel-iface` (when Flannel active) |
-| `k3s_extra_args`                | `"--cluster-init"`      | Additional K3s CLI arguments (see below)                                                               |
+| `k3s_extra_args`                | `"--cluster-init --disable-network-policy --flannel-backend=none"` | Additional K3s CLI arguments (see below) |
 | `k3s_install_etcdctl`           | `true`                  | Install etcdctl debugging tool                                                                         |
 | `etcdctl_version`               | `"v3.5.0"`              | etcdctl version                                                                                        |
 | `k3s_private_registry_host`     | —                       | Private Docker registry hostname                                                                       |
@@ -249,24 +257,18 @@ internal network. With public IPs on nodes, you must firewall the inter-node por
 
 This is the main knob for configuring your cluster. It maps directly to K3s CLI flags.
 
-**Single node (simplest setup):**
+**Single node (default — with Cilium CNI):**
 
 ```yaml
-k3s_extra_args: "--cluster-init"
-```
-
-**Single node, custom ingress (disable built-in Traefik):**
-
-```yaml
-k3s_extra_args: "--cluster-init --disable=traefik"
+k3s_extra_args: "--cluster-init --disable-network-policy --flannel-backend=none"
 ```
 
 **Multi-node — first server (initializes the cluster):**
 
 ```yaml
-# Per-host in inventory (--node-ip and --flannel-iface injected automatically):
+# Per-host in inventory (--node-ip injected automatically when k3s_private_ip is set):
 k3s_private_ip: "10.208.183.1"
-k3s_extra_args: "--cluster-init --tls-san 10.208.183.1 --tls-san 203.0.113.10"
+k3s_extra_args: "--cluster-init --disable-network-policy --flannel-backend=none --tls-san 10.208.183.1 --tls-san 203.0.113.10"
 ```
 
 **Multi-node — joining servers:**
@@ -274,13 +276,7 @@ k3s_extra_args: "--cluster-init --tls-san 10.208.183.1 --tls-san 203.0.113.10"
 ```yaml
 # Per-host in inventory:
 k3s_private_ip: "10.208.183.2"
-k3s_extra_args: "--server https://10.208.183.1:6443 --tls-san 10.208.183.2 --tls-san 203.0.113.20"
-```
-
-**With Cilium CNI (advanced networking):**
-
-```yaml
-k3s_extra_args: "--cluster-init --disable=traefik --disable-network-policy --flannel-backend=none"
+k3s_extra_args: "--server https://10.208.183.1:6443 --disable-network-policy --flannel-backend=none --tls-san 10.208.183.2 --tls-san 203.0.113.20"
 ```
 
 **High pod density:**
@@ -338,7 +334,7 @@ After k3s is running, deploy the cluster-level services that every production cl
 
 Traefik and local-path-provisioner are already bundled with k3s (v1.33.x ships Traefik v3.6.x). We patch them via `HelmChartConfig` — no need to disable or redeploy them.
 
-The Hetzner setup (nodes + load balancer) is already configured to forward ports 80/443. Traefik runs as a DaemonSet with `hostPort: 80/443` — the LB forwards directly to each node's bound ports.
+The Hetzner setup (nodes + load balancer) is already configured to forward ports 80/443. Traefik runs as a ClusterIP DaemonSet — `CiliumLocalRedirectPolicy` intercepts traffic arriving at each node's IP on port 80/443 and redirects it to the local Traefik pod via eBPF (no hostPort, client IPs preserved).
 
 ### Prerequisites
 
@@ -414,30 +410,41 @@ spec:
 
 > **Tip:** Use `letsencrypt-staging` first to verify your setup (no rate limits, but untrusted cert), then switch to `letsencrypt-prod`.
 
-### Optional: Upgrading to Cilium (Advanced Networking)
+### Cilium CNI
 
-The default CNI is Flannel (k3s default). Cilium provides NetworkPolicy enforcement, Hubble observability, and `CiliumLocalRedirectPolicy` for proper client IP preservation (instead of hostPort).
+This boilerplate uses [Cilium](https://cilium.io/) as the default CNI. Flannel (the k3s default) is disabled.
 
-**To switch from Flannel to Cilium:**
+**Why Cilium?**
 
-1. Update `k3s_extra_args` to disable Flannel and network policy:
-   ```
-   --disable=traefik --disable=local-storage --disable-network-policy --flannel-backend=none
-   ```
-2. Re-run Ansible: `mise run hetzner:ansible`
-3. Install Cilium via Helm:
-   ```bash
-   helm repo add cilium https://helm.cilium.io/
-   helm install cilium cilium/cilium --version <VERSION> \
-     --namespace kube-system \
-     --set kubeProxyReplacement=true \
-     --set ipam.mode=kubernetes \
-     --set hubble.relay.enabled=true \
-     --set hubble.ui.enabled=true \
-     --set localRedirectPolicy=true \
-     --set operator.replicas=1   # for single-node clusters
-   ```
-4. Switch Traefik from `hostPort` to `ClusterIP` + add `CiliumLocalRedirectPolicy` per node IP (redirect node IP:80/443 → Traefik ClusterIP service). See [Cilium LocalRedirectPolicy docs](https://docs.cilium.io/en/stable/network/kubernetes/local-redirect-policy/) for the pattern.
+- **eBPF-based data plane** — all packet processing happens in the kernel via eBPF programs, bypassing iptables chains entirely. Lower latency, higher throughput, and CPU savings at scale.
+- **Full kube-proxy replacement** — Cilium handles service routing, load balancing, and NodePort/hostPort via eBPF instead of iptables. No kube-proxy sidecar needed.
+- **`CiliumLocalRedirectPolicy`** — redirects traffic arriving at a node's IP directly to a local pod via eBPF, without SNAT. This is how Traefik receives traffic from the load balancer while preserving real client IPs.
+- **NetworkPolicy enforcement** — Cilium enforces Kubernetes NetworkPolicy natively via eBPF (k3s's built-in network policy controller is disabled via `--disable-network-policy`).
+- **Hubble observability** — built-in network flow visibility and UI via `hubble relay` and `hubble ui`.
+
+**servicelb note:** `--disable=servicelb` is intentionally NOT set. Disabling k3s's built-in load balancer controller (servicelb) breaks the Rancher management UI. servicelb is kept running but sits idle — simply avoid creating `type: LoadBalancer` services and there is no conflict with `CiliumLocalRedirectPolicy`.
+
+**Install:**
+
+```bash
+# Set version in .cluster.env:
+CILIUM_VERSION="1.18.5"
+
+# Run before cluster-setup:apply:
+mise run cluster-setup:cilium
+```
+
+This runs `helm upgrade --install` with: kube-proxy replacement, `ipam.mode=kubernetes`, Hubble relay + UI, `localRedirectPolicy=true`, `operator.replicas=1` (single-node).
+
+`cluster-setup:apply` then creates a `CiliumLocalRedirectPolicy` per node (see `cluster-setup/25_cilium_traefik_redirect.yaml`) that routes the node's IP:80/443 to the local Traefik pod.
+
+**Verify:**
+
+```bash
+cilium status                                   # all components green
+kubectl get ciliumlocalredirectpolicy -A        # one entry per node
+kubectl get pods -n kube-system | grep cilium   # cilium + cilium-operator running
+```
 
 ---
 
@@ -449,7 +456,7 @@ The default CNI is Flannel (k3s default). Cilium provides NetworkPolicy enforcem
 
 - [ ] Read release notes at [K3s releases](https://github.com/k3s-io/k3s/releases) and [Kubernetes changelog](https://kubernetes.io/releases/)
 - [ ] Check for removed/deprecated APIs — update manifests before upgrading
-- [ ] If using Cilium: check [Cilium K8s compatibility matrix](https://docs.cilium.io/en/stable/network/kubernetes/compatibility/) for the target k3s version
+- [ ] Check [Cilium K8s compatibility matrix](https://docs.cilium.io/en/stable/network/kubernetes/compatibility/) for the target k3s version
 - [ ] Upgrade one minor version at a time (1.32 → 1.33), don't skip versions
 - [ ] Update `K3S_VERSION` in `.cluster.env` and re-run: `mise run hetzner:ansible`
   - Ansible restarts K3s **one node at a time** (`throttle: 1`) — the cluster stays healthy
@@ -488,7 +495,7 @@ The default CNI is Flannel (k3s default). Cilium provides NetworkPolicy enforcem
 - [ ] Re-apply: `mise run cluster-setup:apply`
 - [ ] Watch pods stabilise: `kubectl get pods -n <namespace> -w`
 
-### Updating Cilium (if using Cilium)
+### Updating Cilium
 
 **Checklist:**
 
@@ -515,17 +522,11 @@ The default CNI is Flannel (k3s default). Cilium provides NetworkPolicy enforcem
   # Clean up preflight
   helm delete cilium-preflight --namespace=kube-system
   ```
-- [ ] Run the upgrade (read current values first: `helm get values cilium -n kube-system`):
+- [ ] Update `CILIUM_VERSION` in `.cluster.env` and re-run:
   ```bash
-  helm upgrade cilium cilium/cilium --version $TARGETVERSION \
-    --namespace=kube-system \
-    --set kubeProxyReplacement=true \
-    --set ipam.mode=kubernetes \
-    --set hubble.relay.enabled=true \
-    --set hubble.ui.enabled=true \
-    --set localRedirectPolicy=true \
-    --set operator.replicas=1   # single-node clusters only!
+  mise run cluster-setup:cilium
   ```
+  This runs `helm upgrade --install` with the same values used at install time. Read current values first if you've customised them: `helm get values cilium -n kube-system`.
 - [ ] Validate: `cilium status` → all green; `cilium connectivity test` → all passed
 - [ ] Verify ingress still works end-to-end (HTTP + HTTPS request)
 - [ ] If Cilium pods can't start after upgrade: reboot nodes one at a time
