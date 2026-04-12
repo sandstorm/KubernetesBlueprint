@@ -46,6 +46,14 @@ else
     --direction in --protocol tcp --port 443 \
     --source-ips 0.0.0.0/0 --source-ips ::/0 \
     --description "HTTPS"
+  # WARNING: This exposes the Kubernetes API server to the public internet.
+  # It is required so you can run kubectl from your local machine or CI/CD pipelines.
+  # The API is protected by TLS and the cluster token, but for a tighter security posture
+  # replace 0.0.0.0/0 and ::/0 below with your own IP address(es).
+  hcloud firewall add-rule "${P}-firewall" \
+    --direction in --protocol tcp --port 6443 \
+    --source-ips 0.0.0.0/0 --source-ips ::/0 \
+    --description "Kubernetes API (kubectl) — public! restrict to your IPs if possible"
 fi
 
 # --- Server ---

@@ -107,8 +107,8 @@ internet traffic through an **external load balancer**. This is how our producti
 
 **Why this matters:**
 
-- **Security:** The K3s API server (6443), etcd (2379-2380), and kubelet (10250) are never exposed to the internet.
-  No firewall misconfiguration can accidentally open them.
+- **Security:** etcd (2379-2380) and kubelet (10250) are never exposed to the internet — only the K3s API server
+  (6443) is opened publicly so you can use `kubectl` from outside. etcd and kubelet stay on the private network only.
 - **Scalability:** Adding nodes later is trivial — just add them to the internal network. The load balancer handles
   traffic distribution. You can scale from 1 to N nodes without changing your network architecture.
 - **Flexibility:** You can swap nodes, update one at a time, or migrate to different hardware — the load balancer IP
@@ -197,22 +197,27 @@ See the [`k3s_extra_args` examples](#k3s_extra_args--common-patterns) below for 
 K3s manages its own iptables rules for pod networking. You only need to configure your **host-level or provider-level
 firewall** (Hetzner Firewall, cloud security groups, or `ufw`/`iptables` on the host).
 
-**Inter-node ports (internal network only — never expose to internet):**
+**Inter-node ports (internal network only):**
 
 | Port      | Protocol | Purpose                                                        |
 |-----------|----------|----------------------------------------------------------------|
-| 6443      | TCP      | K3s API server                                                 |
 | 2379-2380 | TCP      | etcd (embedded, when using `--cluster-init`)                   |
 | 10250     | TCP      | Kubelet metrics                                                |
 | 8472      | UDP      | VXLAN overlay (Flannel, K3s default CNI)                       |
 | 51820     | UDP      | WireGuard (only if using `--flannel-backend=wireguard-native`) |
 
-**Ingress ports (public-facing):**
+**Public-facing ports:**
 
-| Port | Protocol | Purpose               |
-|------|----------|-----------------------|
-| 80   | TCP      | HTTP ingress traffic  |
-| 443  | TCP      | HTTPS ingress traffic |
+| Port | Protocol | Purpose                                                                                    |
+|------|----------|--------------------------------------------------------------------------------------------|
+| 80   | TCP      | HTTP ingress traffic                                                                       |
+| 443  | TCP      | HTTPS ingress traffic                                                                      |
+| 6443 | TCP      | **Kubernetes API server** (`kubectl` access) — **publicly exposed, see warning below**    |
+
+> **Security warning — port 6443:** The Hetzner setup opens port 6443 to the internet so you can run `kubectl` from
+> your local machine and CI/CD pipelines. The API is protected by TLS and cluster credentials, but exposing it
+> publicly widens the attack surface. If possible, **restrict the source IPs** to your own address(es) by editing the
+> firewall rule in `.mise/tasks/hetzner/create` before running `mise run hetzner:create`.
 
 With private nodes behind a load balancer, the LB forwards 80/443 and you can allow all traffic between nodes on the
 internal network. With public IPs on nodes, you must firewall the inter-node ports above to the internal network only.
@@ -318,45 +323,212 @@ This automatically deploys cert-manager and Rancher as Helm charts via K3s auto-
 - **Private registry credentials:** Same recommendation — use Vault for `k3s_private_registry_password`
 - The K3s binary is downloaded with SHA256 checksum verification
 
+## Cluster Setup (Innenausbau)
+
+After k3s is running, deploy the cluster-level services that every production cluster needs.
+
+### What Gets Deployed
+
+| Component | How | Purpose |
+|---|---|---|
+| Traefik | `HelmChartConfig` (patches k3s built-in) | DaemonSet + Gateway API support |
+| cert-manager | `HelmChart` (deployed separately) | Automatic TLS via Let's Encrypt |
+| local-path-provisioner | `HelmChartConfig` (patches k3s built-in) | `reclaimPolicy: Retain` |
+| PriorityClass `customer` | manifest | Evict internal services before production workloads |
+
+Traefik and local-path-provisioner are already bundled with k3s (v1.33.x ships Traefik v3.6.x). We patch them via `HelmChartConfig` — no need to disable or redeploy them.
+
+The Hetzner setup (nodes + load balancer) is already configured to forward ports 80/443. Traefik runs as a DaemonSet with `hostPort: 80/443` — the LB forwards directly to each node's bound ports.
+
+### Prerequisites
+
+Add your email to `.cluster.env` (used for Let's Encrypt registration):
+
+```bash
+# In .cluster.env:
+CERT_MANAGER_EMAIL="admin@example.com"
+```
+
+Works on existing clusters too — `HelmChartConfig` just patches the running Helm releases, no Ansible re-run needed.
+
+### Apply
+
+```bash
+mise run cluster-setup:apply
+```
+
+This applies all components in order and waits for Traefik to be ready before applying cert-manager.
+
+**Verify:**
+
+```bash
+export KUBECONFIG=server-setup/kubeconfig
+
+kubectl get helmchart -A                      # traefik-gateway, cert-manager → status: deployed
+kubectl get pods -n traefik-gateway           # DaemonSet pods running
+kubectl get pods -n cert-manager              # cert-manager pods running
+kubectl get clusterissuer                     # letsencrypt-prod, letsencrypt-staging
+kubectl get storageclass                      # local-path (default), reclaimPolicy: Retain
+kubectl get priorityclass customer            # value: 100
+```
+
+### Using TLS in Your Apps
+
+Create a `Gateway` + `HTTPRoute` (Gateway API) and annotate it for cert-manager:
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: my-app
+  namespace: my-app
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: websecure
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: my-app-tls   # cert-manager will create this Secret
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: my-app
+  namespace: my-app
+spec:
+  parentRefs:
+    - name: my-app
+      sectionName: websecure
+  hostnames:
+    - "my-app.example.com"
+  rules:
+    - backendRefs:
+        - name: my-app-service
+          port: 80
+```
+
+> **Tip:** Use `letsencrypt-staging` first to verify your setup (no rate limits, but untrusted cert), then switch to `letsencrypt-prod`.
+
+### Optional: Upgrading to Cilium (Advanced Networking)
+
+The default CNI is Flannel (k3s default). Cilium provides NetworkPolicy enforcement, Hubble observability, and `CiliumLocalRedirectPolicy` for proper client IP preservation (instead of hostPort).
+
+**To switch from Flannel to Cilium:**
+
+1. Update `k3s_extra_args` to disable Flannel and network policy:
+   ```
+   --disable=traefik --disable=local-storage --disable-network-policy --flannel-backend=none
+   ```
+2. Re-run Ansible: `mise run hetzner:ansible`
+3. Install Cilium via Helm:
+   ```bash
+   helm repo add cilium https://helm.cilium.io/
+   helm install cilium cilium/cilium --version <VERSION> \
+     --namespace kube-system \
+     --set kubeProxyReplacement=true \
+     --set ipam.mode=kubernetes \
+     --set hubble.relay.enabled=true \
+     --set hubble.ui.enabled=true \
+     --set localRedirectPolicy=true \
+     --set operator.replicas=1   # for single-node clusters
+   ```
+4. Switch Traefik from `hostPort` to `ClusterIP` + add `CiliumLocalRedirectPolicy` per node IP (redirect node IP:80/443 → Traefik ClusterIP service). See [Cilium LocalRedirectPolicy docs](https://docs.cilium.io/en/stable/network/kubernetes/local-redirect-policy/) for the pattern.
+
+---
+
 ## Operations
 
 ### Updating K3s
 
-To update K3s to a new version:
+**Checklist:**
 
-1. **Check release notes** at [K3s releases](https://github.com/k3s-io/k3s/releases) and the
-   [Kubernetes changelog](https://kubernetes.io/releases/). Look for removed/deprecated APIs and update your manifests
-   before upgrading.
-2. Change `k3s_version` in `group_vars/all.yml`
-3. Re-run the playbook: `ansible-playbook playbook.yml`
-4. The Ansible handler restarts K3s automatically. In multi-node setups, it restarts **one node at a time** (
-   `throttle: 1`) to keep the cluster healthy.
-5. **Watch the upgrade:**
-   ```bash
-   # Watch all pods during the upgrade
-   kubectl get pods --all-namespaces -w
+- [ ] Read release notes at [K3s releases](https://github.com/k3s-io/k3s/releases) and [Kubernetes changelog](https://kubernetes.io/releases/)
+- [ ] Check for removed/deprecated APIs — update manifests before upgrading
+- [ ] If using Cilium: check [Cilium K8s compatibility matrix](https://docs.cilium.io/en/stable/network/kubernetes/compatibility/) for the target k3s version
+- [ ] Upgrade one minor version at a time (1.32 → 1.33), don't skip versions
+- [ ] Update `K3S_VERSION` in `.cluster.env` and re-run: `mise run hetzner:ansible`
+  - Ansible restarts K3s **one node at a time** (`throttle: 1`) — the cluster stays healthy
+- [ ] Watch pods stabilise:
+  ```bash
+  kubectl get pods --all-namespaces -w
+  kubectl get pods --all-namespaces | grep -v Running | grep -v Completed
+  ```
+- [ ] Restart Traefik DaemonSet if routing issues appear after upgrade:
+  ```bash
+  kubectl rollout restart daemonset -n traefik-gateway
+  ```
+- [ ] If pods are stuck in `CrashLoopBackOff`, delete them — controllers will recreate them:
+  ```bash
+  kubectl delete pod <pod-name> -n <namespace>
+  ```
+- [ ] If nodes are stuck after upgrade, reboot them one at a time
+- [ ] Update `K3S_VERSION` in `group_vars/all.yml` to match the installed version (prevents accidental downgrade on next Ansible run)
 
-   # After upgrade, check for broken pods
-   kubectl get pods --all-namespaces | grep CrashLoop
+**Rancher (if enabled):** Check the [support matrix](https://www.suse.com/suse-rancher/support-matrix/) for compatibility. Patch releases up to `.3` (e.g., `v2.12.3`) are free community editions; `.4`+ require a Rancher Prime subscription.
 
-   # Verify all nodes show the new version
-   kubectl get nodes
-   ```
-6. If pods are in `CrashLoopBackOff` after the upgrade, try deleting them — they'll be recreated by their controllers:
-   `kubectl delete pod <pod-name> -n <namespace>`
+### Updating Cluster Components (Traefik, cert-manager, etc.)
 
-**Recommendations:**
+**Checklist:**
 
-- Upgrade one minor version at a time (e.g., 1.32 → 1.33), don't skip versions
-- In multi-node setups, test on a staging cluster first
-- If you use Rancher, check the [support matrix](https://www.suse.com/suse-rancher/support-matrix/) for version
-  compatibility between K3s and Rancher
-- **Rancher licensing:** Starting with Rancher 2.10, SUSE split releases into two tiers. Patch releases up to `.3`
-  (e.g., `v2.10.0`–`v2.10.3`) are labeled *"Community and Prime"* — freely available. From `.4` onwards
-  (e.g., `v2.10.4`+) releases are labeled *"Prime version"* only — these require a commercial
-  [Rancher Prime](https://www.rancher.com/products/rancher-platform) subscription. If you need a free/open-source
-  version, pin `k3s_rancher_version` to `.3` of your chosen minor version.
-  Check the [Rancher releases page](https://github.com/rancher/rancher/releases) for the exact label on each release.
+- [ ] Check for new chart versions:
+  ```bash
+  helm repo add traefik https://traefik.github.io/charts && helm repo update
+  helm search repo traefik/traefik --versions
+
+  helm repo add jetstack https://charts.jetstack.io && helm repo update
+  helm search repo jetstack/cert-manager --versions
+  ```
+- [ ] Read upgrade notes for each component (cert-manager: [upgrading docs](https://cert-manager.io/docs/releases/upgrading/))
+- [ ] Update the chart version in the relevant `cluster-setup/*.yaml` file
+- [ ] Re-apply: `mise run cluster-setup:apply`
+- [ ] Watch pods stabilise: `kubectl get pods -n <namespace> -w`
+
+### Updating Cilium (if using Cilium)
+
+**Checklist:**
+
+- [ ] Check that you are on the latest patch of your **current** Cilium minor version first:
+  ```bash
+  helm repo add cilium https://helm.cilium.io/ && helm repo update
+  helm search repo cilium/cilium --versions | grep <current-minor>
+  ```
+- [ ] Check [Cilium K8s compatibility matrix](https://docs.cilium.io/en/stable/network/kubernetes/compatibility/) for target version
+- [ ] Check [system requirements](https://docs.cilium.io/en/stable/operations/system_requirements/) (kernel version, Ubuntu version)
+- [ ] Read [upgrade notes](https://docs.cilium.io/en/stable/operations/upgrade/) for breaking changes
+- [ ] Run **preflight checks** before upgrading (validates node readiness):
+  ```bash
+  TARGETVERSION=<new-version>
+  helm install cilium-preflight cilium/cilium --version $TARGETVERSION \
+    --namespace=kube-system \
+    --set preflight.enabled=true \
+    --set agent=false \
+    --set operator.enabled=false
+
+  # READY must equal AVAILABLE must equal DESIRED
+  kubectl get daemonset -n kube-system | grep cilium
+
+  # Clean up preflight
+  helm delete cilium-preflight --namespace=kube-system
+  ```
+- [ ] Run the upgrade (read current values first: `helm get values cilium -n kube-system`):
+  ```bash
+  helm upgrade cilium cilium/cilium --version $TARGETVERSION \
+    --namespace=kube-system \
+    --set kubeProxyReplacement=true \
+    --set ipam.mode=kubernetes \
+    --set hubble.relay.enabled=true \
+    --set hubble.ui.enabled=true \
+    --set localRedirectPolicy=true \
+    --set operator.replicas=1   # single-node clusters only!
+  ```
+- [ ] Validate: `cilium status` → all green; `cilium connectivity test` → all passed
+- [ ] Verify ingress still works end-to-end (HTTP + HTTPS request)
+- [ ] If Cilium pods can't start after upgrade: reboot nodes one at a time
 
 ### Backup & Restore
 

@@ -1,0 +1,19 @@
+# Override k3s's built-in local-path-provisioner StorageClass to use
+# reclaimPolicy: Retain instead of the default Delete.
+#
+# k3s v1.33.x deploys local-path-provisioner as a HelmChart, so HelmChartConfig
+# can patch its values — no need to disable or vendor the provisioner.
+#
+# KEY CHANGE: reclaimPolicy: Retain (vs. k3s default: Delete)
+# With "Delete", deleting a PVC also deletes the PV and all data on disk.
+# With "Retain", the PV (and data) stays on disk — you must clean up manually.
+# This prevents accidental data loss during deployments or rollbacks.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: local-path
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    storageClass:
+      reclaimPolicy: Retain

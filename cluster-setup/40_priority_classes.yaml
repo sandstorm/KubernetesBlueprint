@@ -1,0 +1,20 @@
+# PriorityClass for customer/production workloads.
+#
+# Assign this to Pods that should be evicted last under memory pressure.
+# Default pod priority is 0; this class raises it to 100, so these pods
+# are only evicted after all pods with lower priority are evicted.
+#
+# Kubernetes system-critical pods use values in the billions — this value
+# is intentionally low to stay below any system concerns.
+#
+# Usage (in a Deployment's PodSpec):
+#   spec:
+#     priorityClassName: customer
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: customer
+value: 100
+globalDefault: false
+description: "Use for production customer workloads. Pods with this class have higher eviction priority (are evicted later) than internal services."

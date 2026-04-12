@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+#MISE description="Apply cluster-level services: Traefik Gateway, cert-manager, storage, priority classes"
+set -euo pipefail
+
+if [ ! -f .cluster.env ]; then
+  gum style --foreground 1 "Error: .cluster.env not found. Run 'mise run hetzner:setup' first."
+  exit 1
+fi
+source .cluster.env
+
+export KUBECONFIG="$(pwd)/server-setup/kubeconfig"
+
+if [ -z "${CERT_MANAGER_EMAIL:-}" ]; then
+  gum style --foreground 1 "Error: CERT_MANAGER_EMAIL is not set in .cluster.env"
+  echo "  Add: CERT_MANAGER_EMAIL=\"admin@example.com\""
+  exit 1
+fi
+
+# --- Show cluster info as safeguard ---
+CLUSTER_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || echo "unknown")
+CLUSTER_NAME=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null || echo "unknown")
+CURRENT_CONTEXT=$(kubectl config current-context 2>/dev/null || echo "unknown")
+
+echo ""
+gum style --bold "Cluster Setup — Innenausbau"
+echo ""
+gum style \
+  "  Cluster:  $(gum style --foreground 3 "${CLUSTER_NAME}")" \
+  "  Server:   $(gum style --foreground 3 "${CLUSTER_SERVER}")" \
+  "  Context:  $(gum style --foreground 3 "${CURRENT_CONTEXT}")" \
+  "  Email:    $(gum style --foreground 3 "${CERT_MANAGER_EMAIL}")" \
+  "  Kubeconfig: $(gum style --foreground 3 "${KUBECONFIG}")"
+echo ""
+
+gum confirm "Apply to this cluster?" || exit 0
+
+echo ""
+
+# --- 1. Traefik ---
+gum spin --title "Configuring Traefik (DaemonSet + Gateway API)..." -- \
+  kubectl apply -f cluster-setup/20_traefik_gateway.yaml
+gum style --foreground 2 "  ✓ Traefik HelmChartConfig applied"
+
+# --- 2. Local-path-provisioner ---
+gum spin --title "Configuring local-path-provisioner (reclaimPolicy: Retain)..." -- \
+  kubectl apply -f cluster-setup/30_local_path_provisioner.yaml
+gum style --foreground 2 "  ✓ local-path HelmChartConfig applied"
+
+# --- 3. Priority classes ---
+gum spin --title "Applying priority classes..." -- \
+  kubectl apply -f cluster-setup/40_priority_classes.yaml
+gum style --foreground 2 "  ✓ PriorityClass customer applied"
+
+# --- 4. cert-manager HelmChart (CRDs not yet installed after this) ---
+gum spin --title "Deploying cert-manager HelmChart..." -- \
+  kubectl apply -f cluster-setup/21_cert_manager.yaml
+gum style --foreground 2 "  ✓ cert-manager HelmChart created"
+
+# --- 5. Wait for cert-manager CRDs (installed by helm controller) ---
+gum spin --title "Waiting for cert-manager CRDs to be installed..." -- \
+  bash -c 'until kubectl get crd clusterissuers.cert-manager.io >/dev/null 2>&1; do sleep 3; done'
+gum style --foreground 2 "  ✓ cert-manager CRDs ready"
+
+gum spin --title "Waiting for cert-manager webhook to be ready..." -- \
+  kubectl rollout status deployment cert-manager-webhook -n cert-manager --timeout=300s
+gum style --foreground 2 "  ✓ cert-manager webhook ready"
+
+# --- 6. ClusterIssuers + ACME Gateway (require cert-manager CRDs) ---
+gum spin --title "Applying ClusterIssuers and ACME Gateway..." -- \
+  bash -c "envsubst < cluster-setup/22_cert_manager_issuers.yaml | kubectl apply -f -"
+gum style --foreground 2 "  ✓ letsencrypt-prod and letsencrypt-staging ready"
+
+echo ""
+gum style --bold --foreground 2 "✓ Cluster setup complete!"
+echo ""
+echo "Verify:"
+echo "  export KUBECONFIG=server-setup/kubeconfig"
+echo "  kubectl get helmchart -A"
+echo "  kubectl get pods -n kube-system -l app.kubernetes.io/name=traefik"
+echo "  kubectl get pods -n cert-manager"
+echo "  kubectl get clusterissuer"
+echo "  kubectl get storageclass"
