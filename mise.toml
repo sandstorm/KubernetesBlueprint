@@ -2,3 +2,6 @@
 gum = "latest"
 "aqua:hetznercloud/cli" = "latest"
 jq = "latest"
+kubectl = "latest"
+helm = "latest"
+envsubst = "latest"
