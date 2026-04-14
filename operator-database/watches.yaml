@@ -1,0 +1,5 @@
+---
+- version: v1alpha1
+  group: k8s.sandstorm.de
+  kind: Database
+  role: database

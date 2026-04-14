@@ -1,0 +1,95 @@
+# The following variables are set:
+#
+# - host
+# - port
+# - adminUser
+# - adminPassword
+# - databaseUser
+# - databasePassword
+# - databaseName
+
+
+# POSTGRES OPERATOR - Permissions
+#
+# We want to create properly isolated ("multitenant") databases from each other on the same DB server; so that
+# each application has its own, separated database, which however are all on the same Postgres server.
+# To isolate the applications from oneanother we aim for the following permissions:
+# - each application has its own database
+# - ... and its own database user (with individual credentials)
+# - this database user owns the database and the schema
+# - ... but cannot create or access other databases
+# - ... nor manage users
+#
+# PREREQUISITES for the template1 database (which is copied when a new DB is created):
+# - the template1 database MUST NOT have any privileges assigned to it
+# - the template1 database MUST NOT contain a public schema.
+#
+# PREREQUISITES for the adminUser:
+# - the admin user must have the attributes `SUPERUSER`
+# - a database with the same name as the admin user must exist, else the login will fail. (can be empty)
+#
+#
+# Steps:
+# 1) Create a new database and schema "public"
+# 2) Create a new user (=role)
+# 3) make sure that the database and "public" schema are OWNED BY the new user
+#
+- name: Create a new database with name '{{ databaseName }}' (1)
+  community.postgresql.postgresql_db:
+    login_host: '{{ host }}'
+    login_port: '{{ port }}'
+    login_user: '{{ adminUser }}'
+    login_password: '{{ adminPassword }}'
+
+    name: '{{ databaseName }}'
+    state: present
+
+# this must be BEFORE the postgresql_membership step; otherwise the databaseUser does not exist yet on first run.
+- name: Create database user {{ databaseUser }} and permissions for the single database (2)
+  community.postgresql.postgresql_user:
+    login_host: '{{ host }}'
+    login_port: '{{ port }}'
+    login_user: '{{ adminUser }}'
+    login_password: '{{ adminPassword }}'
+
+    name: '{{ databaseUser }}'
+    password: '{{ databasePassword }}'
+    db: '{{ databaseName }}'
+    priv: 'ALL'
+    state: present
+
+
+- name: Create a new "public" database schema (1)
+  community.postgresql.postgresql_schema:
+    login_host: '{{ host }}'
+    login_port: '{{ port }}'
+    login_user: '{{ adminUser }}'
+    login_password: '{{ adminPassword }}'
+
+    database: '{{ databaseName }}'
+    name: 'public'
+    state: present
+
+- name: Set owner as {{ databaseUser }} for schema public (3)
+  community.postgresql.postgresql_owner:
+    login_host: '{{ host }}'
+    login_port: '{{ port }}'
+    login_user: '{{ adminUser }}'
+    login_password: '{{ adminPassword }}'
+
+    db: '{{ databaseName }}'
+    obj_type: schema
+    obj_name: public
+    new_owner: '{{ databaseUser }}'
+
+- name: Set owner as {{ databaseUser }} for database {{ databaseName }} (3)
+  community.postgresql.postgresql_owner:
+    login_host: '{{ host }}'
+    login_port: '{{ port }}'
+    login_user: '{{ adminUser }}'
+    login_password: '{{ adminPassword }}'
+
+    db: '{{ databaseName }}'
+    obj_type: database
+    obj_name: '{{ databaseName }}'
+    new_owner: '{{ databaseUser }}'

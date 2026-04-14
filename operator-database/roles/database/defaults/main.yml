@@ -1,0 +1,4 @@
+---
+# defaults file for Database
+database_server: null
+database_name_override: null

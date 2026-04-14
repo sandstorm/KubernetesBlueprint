@@ -1,0 +1,115 @@
+---
+#
+# 1. Read the DatabaseServer CRD which has been specified as the databaseServer property of the
+#    Database CRD.
+#
+#    NOTE: The DatabaseServer CRD is searched next to the OPERATOR, not next to the Database CRD;
+#          so that database admin credentials are not needed inside a namespace.
+#
+- name: Read the fitting DatabaseServer definition, in order to retrieve admin credentials
+  kubernetes.core.k8s_info:
+    api_version: k8s.sandstorm.de/v1alpha1
+    kind: DatabaseServer
+    name: '{{ database_server }}'
+    namespace: "{{ lookup('env', 'POD_NAMESPACE') }}"
+  register: databaseServers
+
+- name: Fail if DatabaseServer not found
+  ansible.builtin.fail:
+    msg: "DatabaseServer '{{ database_server }}' not found in namespace '{{ lookup('env', 'POD_NAMESPACE') }}'"
+  when: databaseServers.resources | length == 0
+
+- ansible.builtin.set_fact:
+    database_server_spec: "{{ databaseServers.resources[0].spec }}"
+
+#
+# 2. Read the database admin password from the linked secret
+#
+- name: Read the secret in order to retrieve the admin password for the database
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: '{{ database_server_spec.adminPasswordSecret }}'
+    namespace: "{{ lookup('env', 'POD_NAMESPACE') }}"
+  register: databaseAdminSecrets
+
+- name: Fail if admin password secret not found
+  ansible.builtin.fail:
+    msg: "Secret '{{ database_server_spec.adminPasswordSecret }}' not found in namespace '{{ lookup('env', 'POD_NAMESPACE') }}'"
+  when: databaseAdminSecrets.resources | length == 0
+
+- ansible.builtin.set_fact:
+    database_server_admin_password: "{{ databaseAdminSecrets.resources[0].data.admin_password | b64decode }}"
+
+
+#
+# Now, we have all admin credentials pulled out.
+#
+# 3. We now try to figure out whether a user+password (for the individual DB) already exists.
+#    We do this by checking the user secret.
+#
+- name: Get the database user secret (to check if it exists)
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: '{{ ansible_operator_meta.name }}'
+    namespace: "{{ ansible_operator_meta.namespace }}"
+  register: databaseSecrets
+
+- name: Create DB Server password K8S Secret, if it does not exist.
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: '{{ ansible_operator_meta.name }}'
+        namespace: "{{ ansible_operator_meta.namespace }}"
+      type: Opaque
+      stringData:
+        DB_PASSWORD: "{{ lookup('password', '/dev/null length=25 chars=ascii_letters') }}"
+  when: (not databaseSecrets.resources) or (not databaseSecrets.resources[0].data.DB_PASSWORD)
+
+#
+# 4. Now we KNOW that the DB Server Password Secret exists.
+#
+- name: Get the database user secret
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: '{{ ansible_operator_meta.name }}'
+    namespace: "{{ ansible_operator_meta.namespace }}"
+  register: databaseSecrets
+
+- ansible.builtin.set_fact:
+    database_password: "{{ databaseSecrets.resources[0].data.DB_PASSWORD | b64decode }}"
+    database_user: '{{ ansible_operator_meta.namespace }}_{{ ansible_operator_meta.name }}'
+    database_name: "{{ database_name_override or (ansible_operator_meta.namespace ~ '_' ~ ansible_operator_meta.name) }}"
+
+#
+# 5. Set up the ConfigMap for host, user, database name; NOT for the password (which is in the secret)
+#
+- name: Create DB Server K8S ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: '{{ ansible_operator_meta.name }}'
+        namespace: "{{ ansible_operator_meta.namespace }}"
+      data:
+        DB_HOST: '{{ database_server_spec.host }}'
+        DB_PORT: '{{ database_server_spec.port }}'
+        DB_USER: '{{ database_user }}'
+        DB_NAME: '{{ database_name }}'
+
+- ansible.builtin.include_tasks: '{{ database_server_spec.type }}.yml'
+  vars:
+    host: '{{ database_server_spec.host }}'
+    port: '{{ database_server_spec.port }}'
+    adminUser: '{{ database_server_spec.adminUser }}'
+    adminPassword: '{{ database_server_admin_password }}'
+    databaseUser: '{{ database_user }}'
+    databasePassword: '{{ database_password }}'
+    databaseName: '{{ database_name }}'

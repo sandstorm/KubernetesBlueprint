@@ -611,6 +611,123 @@ If you see `x509: certificate is valid for ... not for ...`:
 - After adding a new TLS SAN, restart K3s: `systemctl restart k3s`
 - Copy the updated kubeconfig: `cat /etc/rancher/k3s/k3s.yaml`
 
+## Database Operator
+
+The `operator-database/` directory contains a Kubernetes operator that provisions databases on pre-existing MySQL, PostgreSQL, and ClickHouse servers. It creates isolated databases with per-application credentials and exposes connection details as ConfigMaps and Secrets.
+
+Built with [Operator SDK](https://sdk.operatorframework.io/) (Ansible).
+
+### How It Works
+
+The operator manages two Custom Resources:
+
+- **`DatabaseServer`** — admin-level config for a database server (host, port, admin credentials). Created once per server in the operator's namespace.
+- **`Database`** — user-facing resource. References a `DatabaseServer` by name. When created, the operator:
+  1. Looks up the `DatabaseServer` and its admin password Secret (both in the operator namespace)
+  2. Generates a random password and stores it in a **Secret** (named after the Database CR, in the CR's namespace) with key `DB_PASSWORD`
+  3. Creates a **ConfigMap** (same name) with keys `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_NAME`
+  4. Provisions the actual database and user on the server (PostgreSQL, MariaDB, or ClickHouse)
+
+Database and user names are derived as `{namespace}_{name}` (overridable via `spec.databaseNameOverride`).
+
+### Setup
+
+#### 1. Build and deploy the operator
+
+```bash
+cd operator-database
+
+# Build the image
+make docker-build IMG=your-registry.com/operator-database:v0.0.1
+make docker-push IMG=your-registry.com/operator-database:v0.0.1
+
+# Install CRDs and deploy the operator
+make install
+make deploy IMG=your-registry.com/operator-database:v0.0.1
+```
+
+The operator runs in the `operator-database-system` namespace.
+
+#### 2. Register a database server
+
+Create a `DatabaseServer` CR and its admin password Secret **in the operator namespace**:
+
+```bash
+# Create the admin password secret
+kubectl -n operator-database-system create secret generic postgres1 \
+  --from-literal='admin_password=YOUR_ADMIN_PASSWORD'
+
+# Create the DatabaseServer CR
+cat <<EOF | kubectl -n operator-database-system apply -f -
+apiVersion: k8s.sandstorm.de/v1alpha1
+kind: DatabaseServer
+metadata:
+  name: postgres1
+spec:
+  type: postgres
+  host: postgres.example.com
+  port: 5432
+  adminUser: operator-database-admin
+  adminPasswordSecret: postgres1
+EOF
+```
+
+Supported `type` values: `postgres`, `mariadb`, `clickhouse`.
+
+#### 3. Create a database
+
+In any namespace, create a `Database` CR referencing the server:
+
+```yaml
+apiVersion: k8s.sandstorm.de/v1alpha1
+kind: Database
+metadata:
+  name: my-app-db
+  namespace: my-app
+spec:
+  databaseServer: postgres1
+```
+
+The operator will create:
+- **Secret** `my-app-db` in namespace `my-app` with key `DB_PASSWORD`
+- **ConfigMap** `my-app-db` in namespace `my-app` with keys `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_NAME`
+- A PostgreSQL database `my_app_my_app_db` with user `my_app_my_app_db` on the server
+
+#### 4. Use credentials in your app
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  namespace: my-app
+spec:
+  template:
+    spec:
+      containers:
+        - name: my-app
+          envFrom:
+            - configMapRef:
+                name: my-app-db
+            - secretRef:
+                name: my-app-db
+```
+
+This injects `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_NAME`, and `DB_PASSWORD` as environment variables.
+
+### Local development
+
+```bash
+cd operator-database
+
+# Install CRDs into the current cluster
+make install
+
+# Run the operator locally (requires KUBECONFIG and POD_NAMESPACE)
+export POD_NAMESPACE=operator-database-system
+make run
+```
+
 ## License
 
 MIT

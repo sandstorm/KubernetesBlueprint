@@ -1,0 +1,32 @@
+# The following variables are set:
+#
+# - host
+# - adminUser
+# - adminPassword
+# - databaseUser
+# - databasePassword
+# - databaseName
+
+- name: Create a new database with name '{{ databaseName }}'
+  community.mysql.mysql_db:
+    login_host: '{{ host }}'
+    login_user: '{{ adminUser }}'
+    login_password: '{{ adminPassword }}'
+
+    name: '{{ databaseName }}'
+    state: present
+
+- name: Create database user {{ databaseUser }} and permissions for the single database
+  community.mysql.mysql_user:
+    login_host: '{{ host }}'
+    login_user: '{{ adminUser }}'
+    login_password: '{{ adminPassword }}'
+
+    name: '{{ databaseUser }}'
+    password: '{{ databasePassword }}'
+    # NOTE: we allow "show databases" globally, despite it being
+    # a small information leak,
+    # to make the "mycli" UI work (https://github.com/dbcli/mycli)
+    priv: '{{ databaseName }}.*:ALL/*.*:SHOW DATABASES'
+    host: '%'
+    state: present

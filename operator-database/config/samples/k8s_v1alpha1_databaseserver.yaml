@@ -1,0 +1,13 @@
+apiVersion: k8s.sandstorm.de/v1alpha1
+kind: DatabaseServer
+metadata:
+  labels:
+    app.kubernetes.io/name: operator-database
+    app.kubernetes.io/managed-by: kustomize
+  name: postgres1
+spec:
+  type: postgres
+  host: postgres.example.com
+  port: 5432
+  adminUser: root
+  adminPasswordSecret: postgres1
