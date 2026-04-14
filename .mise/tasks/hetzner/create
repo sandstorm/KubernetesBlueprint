@@ -105,10 +105,6 @@ fi
 LB_PUBLIC_IP=$(hcloud load-balancer describe "${P}-lb" -o json | jq -r '.public_net.ipv4.ip')
 echo "  Load Balancer:  ${LB_PUBLIC_IP}"
 
-if [ "$SERVER_CREATED" = "1" ]; then
-  gum spin --title "Waiting 30s for server to finish booting..." -- sleep 30
-fi
-
 # --- Generate Ansible files ---
 echo "→ Generating server-setup/inventory/hosts.yml..."
 mkdir -p server-setup/inventory
@@ -121,7 +117,8 @@ all:
       ansible_user: root
       ansible_port: 22
       k3s_private_ip: "${NODE1_PRIVATE_IP}"
-      k3s_extra_args: "--cluster-init --tls-san ${NODE1_PUBLIC_IP}"
+      # NOTE: disabling network-policy/flannel, as we want to use cilium
+      k3s_extra_args: "--cluster-init --tls-san ${NODE1_PUBLIC_IP} --disable-network-policy --flannel-backend=none"
 INVENTORY
 
 echo "→ Generating server-setup/group_vars/all.yml..."

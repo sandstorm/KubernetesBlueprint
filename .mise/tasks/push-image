@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="Build image for linux/amd64 and import directly into k3s containerd on a node (LOCAL DEV WORKAROUND to work WITHOUT registry)"
-#MISE usage="Usage: mise run push-image <image> <node>  # e.g. mise run push-image myapp:dev root@1.2.3.4"
 set -euo pipefail
 
 IMAGE="${1:-}"

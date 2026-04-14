@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Install Cilium CNI via Helm (optional) — run BEFORE cluster-setup:apply when using Cilium"
+#MISE description="Install Cilium CNI via Helm — run BEFORE cluster-setup:apply"
 set -euo pipefail
 
 if [ ! -f .cluster.env ]; then
@@ -55,14 +55,16 @@ gum spin --title "Installing Cilium ${CILIUM_VERSION}..." -- \
     --set operator.replicas=1
 gum style --foreground 2 "  ✓ Cilium installed"
 
+# --- Wait for Cilium to be ready ---
+gum spin --title "Waiting for Cilium DaemonSet to be ready..." -- \
+  kubectl rollout status daemonset cilium -n kube-system --timeout=120s
+
 echo ""
-gum style --bold --foreground 2 "✓ Cilium installation initiated!"
+gum style --bold --foreground 2 "✓ Cilium installation complete!"
 echo ""
-echo "Wait for Cilium to become ready, then run cluster-setup:apply:"
-echo ""
+echo "Verify:"
 echo "  export KUBECONFIG=server-setup/kubeconfig"
-echo "  kubectl get pods -n kube-system | grep cilium"
-echo "  cilium status   # requires cilium CLI"
+echo "  cilium status   # Cluster Pods should show X/X managed by Cilium"
 echo ""
-echo "Once nodes are Ready:"
+echo "Next:"
 echo "  mise run cluster-setup:apply"

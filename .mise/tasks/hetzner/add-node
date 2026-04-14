@@ -58,10 +58,6 @@ else
     --use-private-ip
 fi
 
-if [ "$SERVER_CREATED" = "1" ]; then
-  gum spin --title "Waiting 30s for server to finish booting..." -- sleep 30
-fi
-
 # --- Regenerate inventory with both nodes ---
 echo "→ Regenerating server-setup/inventory/hosts.yml..."
 cat > server-setup/inventory/hosts.yml <<INVENTORY
@@ -73,13 +69,15 @@ all:
       ansible_user: root
       ansible_port: 22
       k3s_private_ip: "${NODE1_PRIVATE_IP}"
-      k3s_extra_args: "--cluster-init --tls-san ${NODE1_PUBLIC_IP}"
+      # NOTE: disabling network-policy/flannel, as we want to use cilium
+      k3s_extra_args: "--cluster-init --tls-san ${NODE1_PUBLIC_IP} --disable-network-policy --flannel-backend=none"
     ${P}-node-2:
       ansible_host: ${NODE2_PUBLIC_IP}
       ansible_user: root
       ansible_port: 22
       k3s_private_ip: "${NODE2_PRIVATE_IP}"
-      k3s_extra_args: "--server https://${NODE1_PRIVATE_IP}:6443 --tls-san ${NODE2_PUBLIC_IP}"
+      # NOTE: disabling network-policy/flannel, as we want to use cilium
+      k3s_extra_args: "--server https://${NODE1_PRIVATE_IP}:6443 --tls-san ${NODE2_PUBLIC_IP} --disable-network-policy --flannel-backend=none"
 INVENTORY
 
 echo ""
