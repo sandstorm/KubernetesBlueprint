@@ -19,7 +19,7 @@ kind: HelmChart
 metadata:
   name: cert-manager
   namespace: cert-manager
-# https://github.com/k3s-io/helm-controller/blob/master/manifests/crd.yaml
+# https://github.com/k3s-io/helm-controller/blob/master/doc/helmchart.md#HelmChart
 spec:
   repo: https://charts.jetstack.io
   chart: cert-manager
