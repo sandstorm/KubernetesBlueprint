@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+#MISE description="Deploy Excalidraw (stateless collaborative whiteboard)"
+set -euo pipefail
+
+if [ ! -f .cluster.env ]; then
+  gum format -- "**Error:** \`.cluster.env\` not found. Run \`mise run hetzner:setup\` first."
+  exit 1
+fi
+source .cluster.env
+
+export KUBECONFIG="$(pwd)/server-setup/kubeconfig"
+
+if [ -z "${EXCALIDRAW_HOSTNAME:-}" ]; then
+  gum format <<EOM
+**Error:** \`EXCALIDRAW_HOSTNAME\` is not set in \`.cluster.env\`
+
+Add: \`EXCALIDRAW_HOSTNAME="excalidraw.example.com"\`
+EOM
+  exit 1
+fi
+
+# --- Show deploy info ---
+CLUSTER_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || echo "unknown")
+
+gum format <<EOM
+
+# Deploy Excalidraw
+
+- Hostname: \`${EXCALIDRAW_HOSTNAME}\`
+- Server: \`${CLUSTER_SERVER}\`
+- Kubeconfig: \`${KUBECONFIG}\`
+EOM
+echo ""
+
+gum confirm "Deploy Excalidraw to this cluster?" || exit 0
+
+echo ""
+
+# --- Create namespace if needed ---
+gum spin --title "Creating namespace excalidraw..." -- \
+  kubectl create namespace excalidraw --dry-run=client -o yaml | kubectl apply -f -
+gum format -- "  ✓ Namespace excalidraw ready"
+
+# --- Deploy OCOP resource ---
+gum spin --title "Deploying Excalidraw..." -- \
+  bash -c "envsubst < demos/excalidraw/app.yaml | kubectl apply -n excalidraw -f -"
+gum format -- "  ✓ Excalidraw OneContainerOnePort applied"
+
+# --- Wait for rollout ---
+gum spin --title "Waiting for Excalidraw to be ready..." -- \
+  kubectl rollout status deployment excalidraw -n excalidraw --timeout=120s
+gum format -- "  ✓ Excalidraw is running"
+
+gum format <<EOM
+
+**✓ Excalidraw deployed!**
+
+Open: \`https://${EXCALIDRAW_HOSTNAME}\`
+EOM

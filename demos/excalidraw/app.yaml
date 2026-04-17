@@ -1,0 +1,19 @@
+apiVersion: k8s.sandstorm.de/v1alpha1
+kind: OneContainerOnePort
+metadata:
+  name: excalidraw
+spec:
+  image: excalidraw/excalidraw:latest
+  port: 80
+  hostNames:
+    ${EXCALIDRAW_HOSTNAME}: []
+  replicas: 1
+  ssl: true
+  stagingCertificates: true
+  healthChecks:
+    startupProbe:
+      enabled: true
+    readinessProbe:
+      enabled: true
+    livenessProbe:
+      enabled: true
