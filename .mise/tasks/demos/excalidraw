@@ -10,14 +10,17 @@ source .cluster.env
 
 export KUBECONFIG="$(pwd)/server-setup/kubeconfig"
 
-if [ -z "${EXCALIDRAW_HOSTNAME:-}" ]; then
+if [ -z "${BASE_DOMAIN:-}" ]; then
   gum format <<EOM
-**Error:** \`EXCALIDRAW_HOSTNAME\` is not set in \`.cluster.env\`
+**Error:** \`BASE_DOMAIN\` is not set in \`.cluster.env\`
 
-Add: \`EXCALIDRAW_HOSTNAME="excalidraw.example.com"\`
+Add: \`BASE_DOMAIN="k3s.example.com"\`
 EOM
   exit 1
 fi
+
+EXCALIDRAW_HOSTNAME="excalidraw.${BASE_DOMAIN}"
+export EXCALIDRAW_HOSTNAME
 
 # --- Show deploy info ---
 CLUSTER_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || echo "unknown")

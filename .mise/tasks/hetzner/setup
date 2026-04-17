@@ -64,6 +64,10 @@ else
     --placeholder "secret token" --value "${K3S_TOKEN:-}" --password)
 fi
 
+# Base domain (wildcard DNS)
+BASE_DOMAIN=$(gum input --header "Base domain for apps (set up *.domain CNAME → load balancer)" \
+  --placeholder "k3s.example.com" --value "${BASE_DOMAIN:-}")
+
 # Write config
 cat > .cluster.env <<EOF
 HCLOUD_CONTEXT="${HCLOUD_CONTEXT}"
@@ -74,6 +78,7 @@ LOCATION="${LOCATION}"
 OS_IMAGE="ubuntu-24.04"
 K3S_VERSION="${K3S_VERSION}"
 K3S_TOKEN="${K3S_TOKEN}"
+BASE_DOMAIN="${BASE_DOMAIN}"
 EOF
 
 gum format <<EOM
@@ -81,6 +86,8 @@ gum format <<EOM
 ✓ Config saved to \`.cluster.env\`
 
 Next steps:
+1. Create a wildcard DNS record: \`*.${BASE_DOMAIN}\` → your load balancer IP
+2. Then run:
 \`\`\`
 mise run hetzner:create    # Create Hetzner infrastructure
 mise run hetzner:ansible   # Install k3s via Ansible

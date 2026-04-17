@@ -6,7 +6,7 @@ spec:
   image: excalidraw/excalidraw:latest
   port: 80
   hostNames:
-    ${EXCALIDRAW_HOSTNAME}: []
+    excalidraw.${BASE_DOMAIN}: []
   replicas: 1
   ssl: true
   stagingCertificates: true

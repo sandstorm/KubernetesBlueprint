@@ -10,14 +10,19 @@ source .cluster.env
 
 export KUBECONFIG="$(pwd)/server-setup/kubeconfig"
 
+# Default to rancher.${BASE_DOMAIN} if RANCHER_HOSTNAME is not explicitly set
 if [ -z "${RANCHER_HOSTNAME:-}" ]; then
-  gum format <<EOM
-**Error:** \`RANCHER_HOSTNAME\` is not set in \`.cluster.env\`
+  if [ -z "${BASE_DOMAIN:-}" ]; then
+    gum format <<EOM
+**Error:** Neither \`RANCHER_HOSTNAME\` nor \`BASE_DOMAIN\` is set in \`.cluster.env\`
 
-Add: \`RANCHER_HOSTNAME="rancher.example.com"\`
+Add: \`BASE_DOMAIN="k3s.example.com"\` or \`RANCHER_HOSTNAME="rancher.example.com"\`
 EOM
-  exit 1
+    exit 1
+  fi
+  RANCHER_HOSTNAME="rancher.${BASE_DOMAIN}"
 fi
+export RANCHER_HOSTNAME
 
 if [ -z "${CERT_MANAGER_EMAIL:-}" ]; then
   gum format <<EOM
