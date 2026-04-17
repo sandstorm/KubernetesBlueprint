@@ -95,15 +95,18 @@ mise run cluster-setup:cilium
 # 6. Deploy cluster services (Traefik, cert-manager, storage, priority classes)
 mise run cluster-setup:apply
 
+# 7. Deploy operators (onecontaineroneport + database)
+mise run cluster-setup:operators
+
 # --- Optional: add a second node (Variant 2) ---
 
-# 7a. Create second server on Hetzner + regenerate inventory
+# 8a. Create second server on Hetzner + regenerate inventory
 mise run hetzner:add-node
 
-# 7b. Install k3s on the new node only
+# 8b. Install k3s on the new node only
 mise run hetzner:ansible -- --limit <PREFIX>-node-2
 
-# 7c. Re-apply cluster-setup to create CLRP for the new node
+# 8c. Re-apply cluster-setup to create CLRP for the new node
 mise run cluster-setup:apply
 
 # Tear everything down
@@ -112,6 +115,12 @@ mise run hetzner:destroy
 
 After `mise r hetzner:ansible` completes, the playbook automatically writes a `kubeconfig` file into `server-setup/`
 with the correct server address. Connect with:
+
+```bash
+mise run kubectl get nodes
+```
+
+This automatically uses the correct kubeconfig. Alternatively, set it manually:
 
 ```bash
 export KUBECONFIG=server-setup/kubeconfig
@@ -145,6 +154,12 @@ ansible-playbook playbook.yml
 
 After the playbook completes, a `kubeconfig` file is automatically written into `server-setup/` with the correct
 server address. Connect with:
+
+```bash
+mise run kubectl get nodes
+```
+
+Or manually:
 
 ```bash
 export KUBECONFIG=server-setup/kubeconfig
@@ -715,7 +730,19 @@ Database and user names are derived as `{namespace}_{name}` (overridable via `sp
 
 ### Setup
 
-#### 1. Build and deploy the operator
+#### 1. Deploy the operator
+
+The easiest way to deploy both operators at once:
+
+```bash
+mise run cluster-setup:operators
+```
+
+This installs CRDs and deploys the controller using the pre-built image from
+`ghcr.io/sandstorm/kubernetesblueprint/operator-database:latest`.
+
+<details>
+<summary>Manual build & deploy (custom image)</summary>
 
 ```bash
 cd operator-database
@@ -728,6 +755,8 @@ make docker-push IMG=your-registry.com/operator-database:v0.0.1
 make install
 make deploy IMG=your-registry.com/operator-database:v0.0.1
 ```
+
+</details>
 
 The operator runs in the `operator-database-system` namespace.
 
@@ -838,7 +867,19 @@ All resource names are derived from the CR name (not namespace), so **multiple a
 
 ### Setup
 
-#### 1. Build and deploy the operator
+#### 1. Deploy the operator
+
+The easiest way to deploy both operators at once:
+
+```bash
+mise run cluster-setup:operators
+```
+
+This installs CRDs and deploys the controller using the pre-built image from
+`ghcr.io/sandstorm/kubernetesblueprint/operator-onecontaineroneport:latest`.
+
+<details>
+<summary>Manual build & deploy (custom image)</summary>
 
 ```bash
 cd operator-onecontaineroneport
@@ -851,6 +892,8 @@ make docker-push IMG=your-registry.com/operator-onecontaineroneport:v0.0.1
 make install
 make deploy IMG=your-registry.com/operator-onecontaineroneport:v0.0.1
 ```
+
+</details>
 
 The operator runs in the `operator-onecontaineroneport-system` namespace.
 

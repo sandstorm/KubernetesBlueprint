@@ -7,4 +7,5 @@ helm = "latest"
 envsubst = "latest"
 cilium-cli = "latest"
 operator-sdk = "latest"
+kustomize = "latest"
 
