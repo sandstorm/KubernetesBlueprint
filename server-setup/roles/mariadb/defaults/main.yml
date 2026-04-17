@@ -1,0 +1,12 @@
+---
+# MariaDB version (repository branch)
+mariadb_version: "10.11"
+
+# Root password for MariaDB — REQUIRED. Use ansible-vault to encrypt.
+# mariadb_root_password:
+
+# Name for the DatabaseServer CRD registered with the database operator
+mariadb_operator_server_name: "mariadb1"
+
+# Hostname/IP that K8s pods use to reach MariaDB (defaults to the server's IP)
+mariadb_operator_connect_host: "{{ ansible_host }}"

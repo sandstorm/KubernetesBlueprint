@@ -1,0 +1,12 @@
+---
+# PostgreSQL major version
+postgres_version: "17"
+
+# Root/admin password for PostgreSQL — REQUIRED. Use ansible-vault to encrypt.
+# postgres_root_password:
+
+# Name for the DatabaseServer CRD registered with the database operator
+postgres_operator_server_name: "postgres1"
+
+# Hostname/IP that K8s pods use to reach PostgreSQL (defaults to the server's IP)
+postgres_operator_connect_host: "{{ ansible_host }}"

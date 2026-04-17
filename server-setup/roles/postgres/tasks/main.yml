@@ -1,0 +1,75 @@
+---
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - postgres_root_password is defined
+      - postgres_root_password | length > 0
+    fail_msg: "postgres_root_password must be set (use ansible-vault)"
+
+- name: "APT - Add Postgres GPG key"
+  apt_key:
+    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+
+- name: "APT - Add postgres repository"
+  apt_repository:
+    repo: "deb http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
+    state: present
+    filename: postgres
+
+- name: Install acl
+  apt:
+    name: acl
+
+- name: Install PostgreSQL
+  apt:
+    name: "postgresql-{{ postgres_version }}"
+
+- name: Install libpq-dev
+  apt:
+    name: libpq-dev
+
+- name: "Install psycopg2"
+  pip:
+    name: psycopg2
+
+- name: Update pg_hba.conf
+  template:
+    src: pg_hba.conf
+    dest: "/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf"
+    mode: 0644
+  notify:
+    - restart postgres
+
+- name: Update postgres_sandstorm.conf
+  template:
+    src: postgres_sandstorm.conf
+    dest: "/etc/postgresql/{{ postgres_version }}/main/conf.d/postgres_sandstorm.conf"
+    mode: 0644
+  notify:
+    - restart postgres
+
+# Setting privileges is complicated:
+# - https://stackoverflow.com/a/39029296
+# - https://github.com/ome/ansible-role-postgresql/blob/master/tasks/databases.yml
+
+- name: postgres | revoke default permissions
+  become: true
+  become_user: postgres
+  postgresql_privs:
+    database: "template1"
+    privs: ALL
+    roles: PUBLIC
+    state: absent
+    type: database
+
+- name: Drop schema "public" with cascade (we want it owned by the corresponding user later)
+  become: true
+  become_user: postgres
+  postgresql_schema:
+    database: "template1"
+    name: public
+    state: absent
+    cascade_drop: yes
+
+- name: Register database server with the K8s database operator
+  include_tasks: k3s_database_operator.yml

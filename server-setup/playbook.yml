@@ -1,6 +1,10 @@
 ---
-- name: Install K3s
+- name: Server Setup
   hosts: all
   become: true
   roles:
     - k3s
+    - role: mariadb
+      when: mariadb_enabled | default(false) | bool
+    - role: postgres
+      when: postgres_enabled | default(false) | bool

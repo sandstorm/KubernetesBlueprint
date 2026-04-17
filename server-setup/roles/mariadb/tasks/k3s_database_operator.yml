@@ -1,0 +1,16 @@
+---
+- name: Create database user operator-database-admin with admin permissions
+  mysql_user:
+    login_host: 'localhost'
+    login_user: 'root'
+    login_password: '{{ mariadb_root_password }}'
+    name: 'operator-database-admin'
+    password: '{{ mariadb_root_password }}'
+    priv: '*.*:ALL,GRANT'
+    host: '%'
+    state: present
+
+- name: Apply Database Operator Config (DatabaseServer CRD + admin Secret)
+  command:
+    cmd: 'kubectl apply -f -'
+    stdin: "{{ lookup('template', './database-operator-mariadb-server.yaml') }}"

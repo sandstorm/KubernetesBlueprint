@@ -68,6 +68,29 @@ fi
 BASE_DOMAIN=$(gum input --header "Base domain for apps (set up *.domain CNAME → load balancer)" \
   --placeholder "k3s.example.com" --value "${BASE_DOMAIN:-}")
 
+# cert-manager email
+CERT_MANAGER_EMAIL=$(gum input --header "Email for Let's Encrypt certificates (cert-manager)" \
+  --placeholder "admin@example.com" --value "${CERT_MANAGER_EMAIL:-}")
+
+# Databases (optional)
+echo ""
+gum format -- "## Database servers (installed on the host, managed by database operator)"
+echo ""
+
+MARIADB_ENABLED="${MARIADB_ENABLED:-true}"
+if gum confirm "Install MariaDB on the host?" --default="${MARIADB_ENABLED}"; then
+  MARIADB_ENABLED=true
+else
+  MARIADB_ENABLED=false
+fi
+
+POSTGRES_ENABLED="${POSTGRES_ENABLED:-true}"
+if gum confirm "Install PostgreSQL on the host?" --default="${POSTGRES_ENABLED}"; then
+  POSTGRES_ENABLED=true
+else
+  POSTGRES_ENABLED=false
+fi
+
 # Write config
 cat > .cluster.env <<EOF
 HCLOUD_CONTEXT="${HCLOUD_CONTEXT}"
@@ -79,6 +102,9 @@ OS_IMAGE="ubuntu-24.04"
 K3S_VERSION="${K3S_VERSION}"
 K3S_TOKEN="${K3S_TOKEN}"
 BASE_DOMAIN="${BASE_DOMAIN}"
+CERT_MANAGER_EMAIL="${CERT_MANAGER_EMAIL}"
+MARIADB_ENABLED="${MARIADB_ENABLED}"
+POSTGRES_ENABLED="${POSTGRES_ENABLED}"
 EOF
 
 gum format <<EOM

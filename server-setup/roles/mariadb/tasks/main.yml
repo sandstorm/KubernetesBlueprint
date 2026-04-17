@@ -1,0 +1,46 @@
+---
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - mariadb_root_password is defined
+      - mariadb_root_password | length > 0
+    fail_msg: "mariadb_root_password must be set (use ansible-vault)"
+
+- name: "APT - Add MariaDB GPG key"
+  apt_key:
+    keyserver: keyserver.ubuntu.com
+    id: '0xF1656F24C74CD1D8'
+
+- name: "APT - Add MariaDB repository"
+  apt_repository:
+    repo: "deb [arch=amd64,arm64,ppc64el] http://ftp.hosteurope.de/mirror/mariadb.org/repo/{{ mariadb_version }}/ubuntu {{ ansible_distribution_release }} main"
+    state: present
+    filename: mariadb
+
+- name: Install mariadb
+  apt:
+    name: mariadb-server
+
+- name: Create error log (needed for mysql_hardening)
+  file:
+    path: /var/log/mysql/error.log
+    state: touch
+    modification_time: preserve
+    access_time: preserve
+
+# NOTE: If you want MySQL hardening, install the devsec.hardening collection
+# and uncomment the following:
+# - name: Harden MySQL
+#   include_role:
+#     name: devsec.hardening.mysql_hardening
+
+- name: Update MariaDB server config (enabling remote access from K8s cluster)
+  template:
+    src: 50-server.cnf
+    dest: /etc/mysql/mariadb.conf.d/50-server.cnf
+    mode: 0644
+  notify:
+    - restart mariadb
+
+- name: Register database server with the K8s database operator
+  include_tasks: k3s_database_operator.yml

@@ -145,10 +145,46 @@ INVENTORY
 
 echo "→ Generating server-setup/group_vars/all.yml..."
 mkdir -p server-setup/group_vars
+
+# --- Auto-generate database root passwords if enabled and not already set ---
+DB_VARS=""
+if [ "${MARIADB_ENABLED:-false}" = "true" ]; then
+  # Preserve existing password if all.yml already has one
+  EXISTING_MARIADB_PW=""
+  if [ -f server-setup/group_vars/all.yml ]; then
+    EXISTING_MARIADB_PW=$(grep '^mariadb_root_password:' server-setup/group_vars/all.yml | sed 's/^mariadb_root_password: *"\(.*\)"/\1/' || true)
+  fi
+  if [ -z "$EXISTING_MARIADB_PW" ]; then
+    EXISTING_MARIADB_PW=$(openssl rand -hex 24)
+    echo "  Generated MariaDB root password."
+  else
+    echo "  Reusing existing MariaDB root password."
+  fi
+  DB_VARS="${DB_VARS}
+mariadb_enabled: true
+mariadb_root_password: \"${EXISTING_MARIADB_PW}\""
+fi
+
+if [ "${POSTGRES_ENABLED:-false}" = "true" ]; then
+  EXISTING_POSTGRES_PW=""
+  if [ -f server-setup/group_vars/all.yml ]; then
+    EXISTING_POSTGRES_PW=$(grep '^postgres_root_password:' server-setup/group_vars/all.yml | sed 's/^postgres_root_password: *"\(.*\)"/\1/' || true)
+  fi
+  if [ -z "$EXISTING_POSTGRES_PW" ]; then
+    EXISTING_POSTGRES_PW=$(openssl rand -hex 24)
+    echo "  Generated PostgreSQL root password."
+  else
+    echo "  Reusing existing PostgreSQL root password."
+  fi
+  DB_VARS="${DB_VARS}
+postgres_enabled: true
+postgres_root_password: \"${EXISTING_POSTGRES_PW}\""
+fi
+
 cat > server-setup/group_vars/all.yml <<GROUPVARS
 ---
 k3s_version: "${K3S_VERSION}"
-k3s_token: "${K3S_TOKEN}"
+k3s_token: "${K3S_TOKEN}"${DB_VARS}
 GROUPVARS
 
 # --- Update SSH known_hosts if server was freshly created ---

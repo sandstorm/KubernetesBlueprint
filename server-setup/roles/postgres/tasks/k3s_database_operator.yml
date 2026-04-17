@@ -1,0 +1,19 @@
+---
+- name: Create database user operator-database-admin with admin permissions
+  become_user: postgres
+  community.general.postgresql_user:
+    name: 'operator-database-admin'
+    password: '{{ postgres_root_password }}'
+    role_attr_flags: 'SUPERUSER'
+    state: present
+
+- name: Create database operator-database-admin (so the user can log in)
+  become_user: postgres
+  community.general.postgresql_db:
+    name: 'operator-database-admin'
+    state: present
+
+- name: Apply Database Operator Config (DatabaseServer CRD + admin Secret)
+  command:
+    cmd: 'kubectl apply -f -'
+    stdin: "{{ lookup('template', './database-operator-postgres-server.yaml') }}"
