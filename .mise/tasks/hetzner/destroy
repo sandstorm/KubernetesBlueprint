@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-#MISE description="Destroy all Hetzner Cloud resources for this cluster"
+#MISE description="Destroy cluster servers (preserves LB, IPs, network, firewall by default)"
+#USAGE flag "--full" help="Delete everything including LB, Primary IPs, network, and firewall (DNS will break)"
 set -euo pipefail
 
 if [ ! -f .cluster.env ]; then
@@ -9,24 +10,63 @@ fi
 source .cluster.env
 
 P="${CLUSTER_PREFIX}"
+FULL="${usage_full:-false}"
 
 hcloud context use "$HCLOUD_CONTEXT"
 
 echo ""
-gum format -- "**⚠ This will destroy all \`${P}-*\` resources in hcloud context \`${HCLOUD_CONTEXT}\`**"
+if [ "$FULL" = "true" ]; then
+  gum format -- "**⚠ FULL destroy: will delete ALL \`${P}-*\` resources including IPs, LB, network, firewall**"
+else
+  gum format -- "**⚠ This will delete \`${P}-*\` servers (LB, IPs, network, firewall are preserved)**"
+fi
 echo ""
 
 gum confirm "Proceed with destruction?" || { echo "Aborted."; exit 0; }
 
 echo ""
 
-# Servers (node-2 first so node-1 can still serve traffic during teardown)
+# --- Remove LB targets (before deleting servers, so LB doesn't error) ---
+if hcloud load-balancer describe "${P}-lb" >/dev/null 2>&1; then
+  for SERVER in "${P}-node-2" "${P}-node-1"; do
+    LB_TARGETS=$(hcloud load-balancer describe "${P}-lb" -o json | jq -r '.targets[].server.name // empty')
+    if echo "$LB_TARGETS" | grep -qx "$SERVER"; then
+      echo "→ Removing ${SERVER} from load balancer..."
+      hcloud load-balancer remove-target "${P}-lb" --server "$SERVER"
+    fi
+  done
+fi
+
+# --- Delete servers (node-2 first so node-1 can still serve traffic during teardown) ---
 for SERVER in "${P}-node-2" "${P}-node-1"; do
   if hcloud server describe "$SERVER" >/dev/null 2>&1; then
     echo "→ Deleting server ${SERVER}..."
     hcloud server delete "$SERVER"
   else
     echo "  ${SERVER}: not found, skipping"
+  fi
+done
+
+if [ "$FULL" != "true" ]; then
+  gum format <<EOM
+
+**✓ Servers destroyed.** LB, IPs, network, and firewall preserved.
+
+Recreate with: \`mise run hetzner:create\` (same IPs will be reused)
+Full teardown: \`mise run hetzner:destroy --full\`
+EOM
+  exit 0
+fi
+
+# --- Full teardown: delete everything ---
+
+# Primary IPs (now unassigned after server deletion)
+for PIP in "${P}-node-1-ipv4" "${P}-node-2-ipv4"; do
+  if hcloud primary-ip describe "$PIP" >/dev/null 2>&1; then
+    echo "→ Deleting primary IP ${PIP}..."
+    hcloud primary-ip delete "$PIP"
+  else
+    echo "  ${PIP}: not found, skipping"
   fi
 done
 

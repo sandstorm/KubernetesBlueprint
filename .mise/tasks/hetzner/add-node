@@ -25,6 +25,17 @@ echo "  Node 1 public:  ${NODE1_PUBLIC_IP}"
 echo "  Node 1 private: ${NODE1_PRIVATE_IP}"
 echo "  LB:             ${LB_PUBLIC_IP}"
 
+# --- Primary IP for node-2 (survives server deletion → stable DNS) ---
+DATACENTER=$(hcloud datacenter list -o json | jq -r --arg loc "$LOCATION" \
+  '[.[] | select(.location.name == $loc)][0].name')
+if hcloud primary-ip describe "${P}-node-2-ipv4" >/dev/null 2>&1; then
+  echo "  Primary IP ${P}-node-2-ipv4 already exists, reusing"
+else
+  echo "→ Creating primary IP ${P}-node-2-ipv4 in ${DATACENTER}..."
+  hcloud primary-ip create --name "${P}-node-2-ipv4" --type ipv4 \
+    --datacenter "${DATACENTER}" --assignee-type server
+fi
+
 # --- Server ---
 SERVER_CREATED=0
 if hcloud server describe "${P}-node-2" >/dev/null 2>&1; then
@@ -39,7 +50,8 @@ else
     --ssh-key "${SSH_KEY_NAME}" \
     --network "${P}-network" \
     --firewall "${P}-firewall" \
-    --location "${LOCATION}"
+    --location "${LOCATION}" \
+    --primary-ipv4 "${P}-node-2-ipv4"
 fi
 
 NODE2_PUBLIC_IP=$(hcloud server describe "${P}-node-2" -o json | jq -r '.public_net.ipv4.ip')
@@ -79,6 +91,14 @@ all:
       # NOTE: disabling network-policy/flannel, as we want to use cilium
       k3s_extra_args: "--server https://${NODE1_PRIVATE_IP}:6443 --tls-san ${NODE2_PUBLIC_IP} --disable-network-policy --flannel-backend=none"
 INVENTORY
+
+# --- Update SSH known_hosts if server was freshly created ---
+if [ "$SERVER_CREATED" -eq 1 ]; then
+  echo ""
+  echo "→ Waiting a few seconds for SSH to become available..."
+  sleep 5
+  mise run hetzner:ssh-keyscan
+fi
 
 gum format <<EOM
 

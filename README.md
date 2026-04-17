@@ -109,8 +109,11 @@ mise run hetzner:ansible -- --limit <PREFIX>-node-2
 # 8c. Re-apply cluster-setup to create CLRP for the new node
 mise run cluster-setup:apply
 
-# Tear everything down
+# Tear down servers (preserves LB, IPs, network, firewall for rebuild)
 mise run hetzner:destroy
+
+# Full teardown (deletes everything including IPs — DNS will break)
+mise run hetzner:destroy --full
 ```
 
 After `mise r hetzner:ansible` completes, the playbook automatically writes a `kubeconfig` file into `server-setup/`
@@ -129,9 +132,11 @@ kubectl get nodes
 
 > **Note:** The kubeconfig grants cluster-admin access — store it securely and never commit it to version control.
 
-> **What gets created:** a private network (10.208.183.0/24), a firewall allowing SSH/HTTP/HTTPS, a server with both a
-> public IP (for SSH) and a private IP, and a load balancer forwarding ports 80/443 to the node via the private network.
-> Config is persisted in `.cluster.env` (gitignored). Ansible inventory and group\_vars are generated automatically.
+> **What gets created:** a private network (10.208.183.0/24), a firewall allowing SSH/HTTP/HTTPS, a Hetzner Primary IP
+> (stable across server rebuilds), a server using that Primary IP, and a load balancer forwarding ports 80/443 to the
+> node via the private network. Config is persisted in `.cluster.env` (gitignored). Ansible inventory and group\_vars
+> are generated automatically. `mise run hetzner:destroy` only deletes servers — the LB, Primary IPs, network, and
+> firewall are preserved so DNS stays stable. Use `-- --full` for complete teardown.
 
 ---
 

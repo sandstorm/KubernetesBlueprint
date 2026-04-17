@@ -56,6 +56,17 @@ else
     --description "Kubernetes API (kubectl) — public! restrict to your IPs if possible"
 fi
 
+# --- Primary IP for node-1 (survives server deletion → stable DNS) ---
+DATACENTER=$(hcloud datacenter list -o json | jq -r --arg loc "$LOCATION" \
+  '[.[] | select(.location.name == $loc)][0].name')
+if hcloud primary-ip describe "${P}-node-1-ipv4" >/dev/null 2>&1; then
+  echo "  Primary IP ${P}-node-1-ipv4 already exists, reusing"
+else
+  echo "→ Creating primary IP ${P}-node-1-ipv4 in ${DATACENTER}..."
+  hcloud primary-ip create --name "${P}-node-1-ipv4" --type ipv4 \
+    --datacenter "${DATACENTER}" --assignee-type server
+fi
+
 # --- Server ---
 SERVER_CREATED=0
 if hcloud server describe "${P}-node-1" >/dev/null 2>&1; then
@@ -70,7 +81,8 @@ else
     --ssh-key "${SSH_KEY_NAME}" \
     --network "${P}-network" \
     --firewall "${P}-firewall" \
-    --location "${LOCATION}"
+    --location "${LOCATION}" \
+    --primary-ipv4 "${P}-node-1-ipv4"
 fi
 
 NODE1_PUBLIC_IP=$(hcloud server describe "${P}-node-1" -o json | jq -r '.public_net.ipv4.ip')
@@ -80,7 +92,17 @@ echo "  Node 1 private: ${NODE1_PRIVATE_IP}"
 
 # --- Load Balancer ---
 if hcloud load-balancer describe "${P}-lb" >/dev/null 2>&1; then
-  echo "  Load balancer ${P}-lb already exists, skipping"
+  echo "  Load balancer ${P}-lb already exists"
+  # Ensure node-1 is a target (may be stale after server recreation)
+  LB_TARGETS=$(hcloud load-balancer describe "${P}-lb" -o json | jq -r '.targets[].server.name // empty')
+  if echo "$LB_TARGETS" | grep -qx "${P}-node-1"; then
+    echo "  ${P}-node-1 already a LB target"
+  else
+    echo "→ Adding ${P}-node-1 to load balancer..."
+    hcloud load-balancer add-target "${P}-lb" \
+      --server "${P}-node-1" \
+      --use-private-ip
+  fi
 else
   echo "→ Creating load balancer ${P}-lb..."
   hcloud load-balancer create \
@@ -128,6 +150,14 @@ cat > server-setup/group_vars/all.yml <<GROUPVARS
 k3s_version: "${K3S_VERSION}"
 k3s_token: "${K3S_TOKEN}"
 GROUPVARS
+
+# --- Update SSH known_hosts if server was freshly created ---
+if [ "$SERVER_CREATED" -eq 1 ]; then
+  echo ""
+  echo "→ Waiting a few seconds for SSH to become available..."
+  sleep 5
+  mise run hetzner:ssh-keyscan
+fi
 
 gum format <<EOM
 

@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+#MISE description="Update ~/.ssh/known_hosts for all cluster nodes (removes old keys, adds current ones)"
+set -euo pipefail
+
+if [ ! -f .cluster.env ]; then
+  gum format -- "**Error:** \`.cluster.env\` not found. Run \`mise run hetzner:setup\` first."
+  exit 1
+fi
+source .cluster.env
+
+P="${CLUSTER_PREFIX}"
+
+hcloud context use "$HCLOUD_CONTEXT"
+
+echo ""
+gum format -- "# SSH Known Hosts Update"
+echo ""
+
+# Collect all node public IPs
+IPS=()
+for NODE in "${P}-node-1" "${P}-node-2"; do
+  if hcloud server describe "$NODE" >/dev/null 2>&1; then
+    IP=$(hcloud server describe "$NODE" -o json | jq -r '.public_net.ipv4.ip')
+    if [ -n "$IP" ] && [ "$IP" != "null" ]; then
+      IPS+=("$IP")
+      echo "  Found ${NODE}: ${IP}"
+    fi
+  fi
+done
+
+if [ ${#IPS[@]} -eq 0 ]; then
+  echo "  No servers found, nothing to do."
+  exit 0
+fi
+
+echo ""
+
+for IP in "${IPS[@]}"; do
+  echo "→ Removing old host key for ${IP}..."
+  ssh-keygen -R "$IP" 2>/dev/null || true
+
+  echo "→ Scanning new host key for ${IP}..."
+  NEW_KEYS=$(ssh-keyscan -H "$IP" 2>/dev/null || true)
+  if [ -n "$NEW_KEYS" ]; then
+    echo "$NEW_KEYS" >> ~/.ssh/known_hosts
+    gum format -- "  ✓ \`${IP}\` added to \`~/.ssh/known_hosts\`"
+  else
+    gum format -- "  ⚠ Could not reach \`${IP}\` — server may not be ready yet. Try again in a moment."
+  fi
+done
+
+gum format <<EOM
+
+**✓ SSH known_hosts updated!**
+EOM
