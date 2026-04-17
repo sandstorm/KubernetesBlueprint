@@ -13,7 +13,7 @@ P="${CLUSTER_PREFIX}"
 hcloud context use "$HCLOUD_CONTEXT"
 
 echo ""
-gum style --bold "Adding second node to cluster '${P}' (hcloud)"
+gum format -- "# Adding second node to cluster \`${P}\` (hcloud)"
 echo ""
 
 # Read existing node-1 info
@@ -80,10 +80,14 @@ all:
       k3s_extra_args: "--server https://${NODE1_PRIVATE_IP}:6443 --tls-san ${NODE2_PUBLIC_IP} --disable-network-policy --flannel-backend=none"
 INVENTORY
 
-echo ""
-gum style --foreground 2 "✓ Node 2 ready!"
-echo ""
-echo "  Node 2: ssh root@${NODE2_PUBLIC_IP}"
-echo ""
-echo "Now run Ansible to install k3s on node-2:"
-echo "  mise run hetzner:ansible -- --limit ${P}-node-2"
+gum format <<EOM
+
+**✓ Node 2 ready!**
+
+- Node 2: \`ssh root@${NODE2_PUBLIC_IP}\`
+
+Now run Ansible to install k3s on node-2:
+\`\`\`
+mise run hetzner:ansible -- --limit ${P}-node-2
+\`\`\`
+EOM

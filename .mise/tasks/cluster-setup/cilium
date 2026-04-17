@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [ ! -f .cluster.env ]; then
-  gum style --foreground 1 "Error: .cluster.env not found. Run 'mise run hetzner:setup' first."
+  gum format -- "**Error:** \`.cluster.env\` not found. Run \`mise run hetzner:setup\` first."
   exit 1
 fi
 source .cluster.env
@@ -11,11 +11,14 @@ source .cluster.env
 export KUBECONFIG="$(pwd)/server-setup/kubeconfig"
 
 if [ -z "${CILIUM_VERSION:-}" ]; then
-  gum style --foreground 1 "Error: CILIUM_VERSION is not set in .cluster.env"
-  echo "  Add: CILIUM_VERSION=\"1.18.5\""
-  echo ""
-  echo "  Also ensure k3s was started with --flannel-backend=none --disable-network-policy"
-  echo "  in k3s_extra_args (server-setup/group_vars/all.yml) and ansible was re-run."
+  gum format <<EOM
+**Error:** \`CILIUM_VERSION\` is not set in \`.cluster.env\`
+
+Add: \`CILIUM_VERSION="1.18.5"\`
+
+Also ensure k3s was started with \`--flannel-backend=none --disable-network-policy\`
+in \`k3s_extra_args\` (\`server-setup/group_vars/all.yml\`) and ansible was re-run.
+EOM
   exit 1
 fi
 
@@ -24,15 +27,16 @@ CLUSTER_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster
 CLUSTER_NAME=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null || echo "unknown")
 CURRENT_CONTEXT=$(kubectl config current-context 2>/dev/null || echo "unknown")
 
-echo ""
-gum style --bold "Cilium CNI Installation"
-echo ""
-gum style \
-  "  Cluster:    $(gum style --foreground 3 "${CLUSTER_NAME}")" \
-  "  Server:     $(gum style --foreground 3 "${CLUSTER_SERVER}")" \
-  "  Context:    $(gum style --foreground 3 "${CURRENT_CONTEXT}")" \
-  "  Version:    $(gum style --foreground 3 "${CILIUM_VERSION}")" \
-  "  Kubeconfig: $(gum style --foreground 3 "${KUBECONFIG}")"
+gum format <<EOM
+
+# Cilium CNI Installation
+
+- Cluster: \`${CLUSTER_NAME}\`
+- Server: \`${CLUSTER_SERVER}\`
+- Context: \`${CURRENT_CONTEXT}\`
+- Version: \`${CILIUM_VERSION}\`
+- Kubeconfig: \`${KUBECONFIG}\`
+EOM
 echo ""
 
 gum confirm "Install Cilium ${CILIUM_VERSION} on this cluster?" || exit 0
@@ -41,7 +45,7 @@ echo ""
 
 gum spin --title "Adding Cilium Helm repo..." -- \
   bash -c "helm repo add cilium https://helm.cilium.io/ >/dev/null 2>&1 && helm repo update cilium >/dev/null 2>&1"
-gum style --foreground 2 "  ✓ Helm repo ready"
+gum format -- "  ✓ Helm repo ready"
 
 gum spin --title "Installing Cilium ${CILIUM_VERSION}..." -- \
   helm upgrade --install cilium cilium/cilium \
@@ -53,18 +57,20 @@ gum spin --title "Installing Cilium ${CILIUM_VERSION}..." -- \
     --set hubble.ui.enabled=true \
     --set localRedirectPolicy=true \
     --set operator.replicas=1
-gum style --foreground 2 "  ✓ Cilium installed"
+gum format -- "  ✓ Cilium installed"
 
 # --- Wait for Cilium to be ready ---
 gum spin --title "Waiting for Cilium DaemonSet to be ready..." -- \
   kubectl rollout status daemonset cilium -n kube-system --timeout=120s
 
-echo ""
-gum style --bold --foreground 2 "✓ Cilium installation complete!"
-echo ""
-echo "Verify:"
-echo "  export KUBECONFIG=server-setup/kubeconfig"
-echo "  cilium status   # Cluster Pods should show X/X managed by Cilium"
-echo ""
-echo "Next:"
-echo "  mise run cluster-setup:apply"
+gum format <<EOM
+
+**✓ Cilium installation complete!**
+
+Verify:
+\`\`\`
+cilium status   # Cluster Pods should show X/X managed by Cilium
+\`\`\`
+
+Next: \`mise run cluster-setup:apply\`
+EOM

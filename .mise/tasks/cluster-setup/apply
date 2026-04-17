@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [ ! -f .cluster.env ]; then
-  gum style --foreground 1 "Error: .cluster.env not found. Run 'mise run hetzner:setup' first."
+  gum format -- "**Error:** \`.cluster.env\` not found. Run \`mise run hetzner:setup\` first."
   exit 1
 fi
 source .cluster.env
@@ -11,17 +11,22 @@ source .cluster.env
 export KUBECONFIG="$(pwd)/server-setup/kubeconfig"
 
 if [ -z "${CERT_MANAGER_EMAIL:-}" ]; then
-  gum style --foreground 1 "Error: CERT_MANAGER_EMAIL is not set in .cluster.env"
-  echo "  Add: CERT_MANAGER_EMAIL=\"admin@example.com\""
+  gum format <<EOM
+**Error:** \`CERT_MANAGER_EMAIL\` is not set in \`.cluster.env\`
+
+Add: \`CERT_MANAGER_EMAIL="admin@example.com"\`
+EOM
   exit 1
 fi
 
 # --- Verify Cilium is running ---
 if ! kubectl get daemonset cilium -n kube-system >/dev/null 2>&1; then
-  gum style --foreground 1 "Error: Cilium is not installed. Run 'mise run cluster-setup:cilium' first."
-  echo ""
-  echo "  Cilium must be running before cluster-setup:apply — it provides the CNI"
-  echo "  and the CiliumLocalRedirectPolicy used to route traffic to Traefik."
+  gum format <<EOM
+**Error:** Cilium is not installed. Run \`mise run cluster-setup:cilium\` first.
+
+Cilium must be running before \`cluster-setup:apply\` — it provides the CNI
+and the \`CiliumLocalRedirectPolicy\` used to route traffic to Traefik.
+EOM
   exit 1
 fi
 
@@ -31,14 +36,15 @@ CLUSTER_NAME=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>
 CURRENT_CONTEXT=$(kubectl config current-context 2>/dev/null || echo "unknown")
 
 echo ""
-gum style --bold "Cluster Setup — Innenausbau"
-echo ""
-gum style \
-  "  Cluster:  $(gum style --foreground 3 "${CLUSTER_NAME}")" \
-  "  Server:   $(gum style --foreground 3 "${CLUSTER_SERVER}")" \
-  "  Context:  $(gum style --foreground 3 "${CURRENT_CONTEXT}")" \
-  "  Email:    $(gum style --foreground 3 "${CERT_MANAGER_EMAIL}")" \
-  "  Kubeconfig: $(gum style --foreground 3 "${KUBECONFIG}")"
+gum format <<EOM
+# Cluster Setup — Innenausbau
+
+- Cluster: \`${CLUSTER_NAME}\`
+- Server: \`${CLUSTER_SERVER}\`
+- Context: \`${CURRENT_CONTEXT}\`
+- Email: \`${CERT_MANAGER_EMAIL}\`
+- Kubeconfig: \`${KUBECONFIG}\`
+EOM
 echo ""
 
 gum confirm "Apply to this cluster?" || exit 0
@@ -48,7 +54,7 @@ echo ""
 # --- 1. Traefik ---
 gum spin --title "Configuring Traefik (DaemonSet + Gateway API)..." -- \
   kubectl apply -f cluster-setup/20_traefik_gateway.yaml
-gum style --foreground 2 "  ✓ Traefik HelmChartConfig applied"
+gum format -- "  ✓ Traefik HelmChartConfig applied"
 
 # --- 1b. CiliumLocalRedirectPolicy for Traefik ---
 # Applied per-node: redirect traffic arriving at the node's IP:80/443 to the local Traefik pod.
@@ -59,45 +65,48 @@ for NODE_NAME in $(kubectl get nodes -o jsonpath='{.items[*].metadata.name}'); d
   NODE_IP=$(kubectl get node "$NODE_NAME" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
   envsubst < cluster-setup/25_cilium_traefik_redirect.yaml | kubectl apply -f -
 done
-gum style --foreground 2 "  ✓ CiliumLocalRedirectPolicy applied for all nodes"
+gum format -- "  ✓ CiliumLocalRedirectPolicy applied for all nodes"
 
 # --- 2. Local-path-provisioner ---
 gum spin --title "Configuring local-path-provisioner (reclaimPolicy: Retain)..." -- \
   kubectl apply -f cluster-setup/30_local_path_provisioner.yaml
-gum style --foreground 2 "  ✓ local-path HelmChartConfig applied"
+gum format -- "  ✓ local-path HelmChartConfig applied"
 
 # --- 3. Priority classes ---
 gum spin --title "Applying priority classes..." -- \
   kubectl apply -f cluster-setup/40_priority_classes.yaml
-gum style --foreground 2 "  ✓ PriorityClass customer applied"
+gum format -- "  ✓ PriorityClass customer applied"
 
 # --- 4. cert-manager HelmChart (CRDs not yet installed after this) ---
 gum spin --title "Deploying cert-manager HelmChart..." -- \
   kubectl apply -f cluster-setup/21_cert_manager.yaml
-gum style --foreground 2 "  ✓ cert-manager HelmChart created"
+gum format -- "  ✓ cert-manager HelmChart created"
 
 # --- 5. Wait for cert-manager CRDs (installed by helm controller) ---
 gum spin --title "Waiting for cert-manager CRDs to be installed..." -- \
   bash -c 'until kubectl get crd clusterissuers.cert-manager.io >/dev/null 2>&1; do sleep 3; done'
-gum style --foreground 2 "  ✓ cert-manager CRDs ready"
+gum format -- "  ✓ cert-manager CRDs ready"
 
 gum spin --title "Waiting for cert-manager webhook to be ready..." -- \
   kubectl rollout status deployment cert-manager-webhook -n cert-manager --timeout=300s
-gum style --foreground 2 "  ✓ cert-manager webhook ready"
+gum format -- "  ✓ cert-manager webhook ready"
 
 # --- 6. ClusterIssuers + ACME Gateway (require cert-manager CRDs) ---
 gum spin --title "Applying ClusterIssuers and ACME Gateway..." -- \
   bash -c "envsubst < cluster-setup/22_cert_manager_issuers.yaml | kubectl apply -f -"
-gum style --foreground 2 "  ✓ letsencrypt-prod and letsencrypt-staging ready"
+gum format -- "  ✓ letsencrypt-prod and letsencrypt-staging ready"
 
-echo ""
-gum style --bold --foreground 2 "✓ Cluster setup complete!"
-echo ""
-echo "Verify:"
-echo "  export KUBECONFIG=server-setup/kubeconfig"
-echo "  kubectl get helmchart -A"
-echo "  kubectl get pods -n kube-system -l app.kubernetes.io/name=traefik"
-echo "  kubectl get ciliumlocalredirectpolicy -A"
-echo "  kubectl get pods -n cert-manager"
-echo "  kubectl get clusterissuer"
-echo "  kubectl get storageclass"
+gum format <<EOM
+
+**✓ Cluster setup complete!**
+
+Verify:
+\`\`\`
+mise run kubectl get helmchart -A
+mise run kubectl get pods -n kube-system -l app.kubernetes.io/name=traefik
+mise run kubectl get ciliumlocalredirectpolicy -A
+mise run kubectl get pods -n cert-manager
+mise run kubectl get clusterissuer
+mise run kubectl get storageclass
+\`\`\`
+EOM

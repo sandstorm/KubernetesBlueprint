@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [ ! -f .cluster.env ]; then
-  gum style --foreground 1 "Error: .cluster.env not found. Run 'mise run hetzner:setup' first."
+  gum format -- "**Error:** \`.cluster.env\` not found. Run \`mise run hetzner:setup\` first."
   exit 1
 fi
 source .cluster.env

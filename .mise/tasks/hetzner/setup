@@ -6,7 +6,7 @@ set -euo pipefail
 [ -f .cluster.env ] && source .cluster.env
 
 echo ""
-gum style --bold --foreground 212 "K3s Cluster Setup"
+gum format -- "# K3s Cluster Setup"
 echo ""
 
 # hcloud context
@@ -76,9 +76,13 @@ K3S_VERSION="${K3S_VERSION}"
 K3S_TOKEN="${K3S_TOKEN}"
 EOF
 
-echo ""
-gum style --foreground 2 "✓ Config saved to .cluster.env"
-echo ""
-echo "Next steps:"
-echo "  mise run hetzner:create    # Create Hetzner infrastructure"
-echo "  mise run hetzner:ansible   # Install k3s via Ansible"
+gum format <<EOM
+
+✓ Config saved to \`.cluster.env\`
+
+Next steps:
+\`\`\`
+mise run hetzner:create    # Create Hetzner infrastructure
+mise run hetzner:ansible   # Install k3s via Ansible
+\`\`\`
+EOM

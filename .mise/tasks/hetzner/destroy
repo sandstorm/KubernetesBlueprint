@@ -13,7 +13,7 @@ P="${CLUSTER_PREFIX}"
 hcloud context use "$HCLOUD_CONTEXT"
 
 echo ""
-gum style --bold --foreground 196 "This will destroy all ${P}-* resources in hcloud context '${HCLOUD_CONTEXT}'"
+gum format -- "**⚠ This will destroy all \`${P}-*\` resources in hcloud context \`${HCLOUD_CONTEXT}\`**"
 echo ""
 
 gum confirm "Proceed with destruction?" || { echo "Aborted."; exit 0; }
@@ -55,4 +55,4 @@ else
 fi
 
 echo ""
-gum style --foreground 2 "✓ All resources destroyed."
+gum format -- "**✓ All resources destroyed.**"

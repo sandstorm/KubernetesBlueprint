@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [ ! -f .cluster.env ]; then
-  gum style --foreground 1 "Error: .cluster.env not found. Run 'mise run hetzner:setup' first."
+  gum format -- "**Error:** \`.cluster.env\` not found. Run \`mise run hetzner:setup\` first."
   exit 1
 fi
 source .cluster.env
@@ -15,18 +15,19 @@ CLUSTER_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster
 CLUSTER_NAME=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null || echo "unknown")
 CURRENT_CONTEXT=$(kubectl config current-context 2>/dev/null || echo "unknown")
 
-echo ""
-gum style --bold "Operator Deployment"
-echo ""
-gum style \
-  "  Cluster:    $(gum style --foreground 3 "${CLUSTER_NAME}")" \
-  "  Server:     $(gum style --foreground 3 "${CLUSTER_SERVER}")" \
-  "  Context:    $(gum style --foreground 3 "${CURRENT_CONTEXT}")" \
-  "  Kubeconfig: $(gum style --foreground 3 "${KUBECONFIG}")"
-echo ""
-echo "  Operators to deploy:"
-echo "    - operator-onecontaineroneport  →  ghcr.io/sandstorm/kubernetesblueprint/operator-onecontaineroneport:latest"
-echo "    - operator-database             →  ghcr.io/sandstorm/kubernetesblueprint/operator-database:latest"
+gum format <<EOM
+
+# Operator Deployment
+
+- Cluster: \`${CLUSTER_NAME}\`
+- Server: \`${CLUSTER_SERVER}\`
+- Context: \`${CURRENT_CONTEXT}\`
+- Kubeconfig: \`${KUBECONFIG}\`
+
+**Operators to deploy:**
+- \`operator-onecontaineroneport\` → \`ghcr.io/sandstorm/kubernetesblueprint/operator-onecontaineroneport:latest\`
+- \`operator-database\` → \`ghcr.io/sandstorm/kubernetesblueprint/operator-database:latest\`
+EOM
 echo ""
 
 gum confirm "Deploy operators to this cluster?" || exit 0
@@ -40,7 +41,7 @@ deploy_operator() {
   local namespace="${name}-system"
   local dir="$(pwd)/${name}"
 
-  gum style --bold "  ${name}"
+  gum format -- "## ${name}"
 
   # Set the controller image
   (cd "${dir}/config/manager" && kustomize edit set image "controller=${image}")
@@ -48,17 +49,17 @@ deploy_operator() {
   # Install CRDs
   gum spin --title "  Installing CRDs..." -- \
     bash -c "kustomize build '${dir}/config/crd' | kubectl apply -f -"
-  gum style --foreground 2 "    ✓ CRDs applied"
+  gum format -- "  ✓ CRDs applied"
 
   # Deploy operator
   gum spin --title "  Deploying controller..." -- \
     bash -c "kustomize build '${dir}/config/default' | kubectl apply -f -"
-  gum style --foreground 2 "    ✓ Controller deployed to ${namespace}"
+  gum format -- "  ✓ Controller deployed to \`${namespace}\`"
 
   # Wait for rollout
   gum spin --title "  Waiting for rollout..." -- \
     kubectl rollout status deployment -n "${namespace}" --timeout=120s
-  gum style --foreground 2 "    ✓ Rollout complete"
+  gum format -- "  ✓ Rollout complete"
 
   echo ""
 }
@@ -67,10 +68,13 @@ deploy_operator() {
 deploy_operator "operator-onecontaineroneport" "ghcr.io/sandstorm/kubernetesblueprint/operator-onecontaineroneport:latest"
 deploy_operator "operator-database" "ghcr.io/sandstorm/kubernetesblueprint/operator-database:latest"
 
-gum style --bold --foreground 2 "✓ All operators deployed!"
-echo ""
-echo "Verify:"
-echo "  export KUBECONFIG=server-setup/kubeconfig"
-echo "  kubectl get deployment -n operator-onecontaineroneport-system"
-echo "  kubectl get deployment -n operator-database-system"
-echo "  kubectl get crd | grep sandstorm"
+gum format <<EOM
+**✓ All operators deployed!**
+
+Verify:
+\`\`\`
+mise run kubectl get deployment -n operator-onecontaineroneport-system
+mise run kubectl get deployment -n operator-database-system
+mise run kubectl get crd | grep sandstorm
+\`\`\`
+EOM

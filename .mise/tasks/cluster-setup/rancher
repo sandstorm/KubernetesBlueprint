@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [ ! -f .cluster.env ]; then
-  gum style --foreground 1 "Error: .cluster.env not found. Run 'mise run hetzner:setup' first."
+  gum format -- "**Error:** \`.cluster.env\` not found. Run \`mise run hetzner:setup\` first."
   exit 1
 fi
 source .cluster.env
@@ -11,14 +11,20 @@ source .cluster.env
 export KUBECONFIG="$(pwd)/server-setup/kubeconfig"
 
 if [ -z "${RANCHER_HOSTNAME:-}" ]; then
-  gum style --foreground 1 "Error: RANCHER_HOSTNAME is not set in .cluster.env"
-  echo "  Add: RANCHER_HOSTNAME=\"rancher.example.com\""
+  gum format <<EOM
+**Error:** \`RANCHER_HOSTNAME\` is not set in \`.cluster.env\`
+
+Add: \`RANCHER_HOSTNAME="rancher.example.com"\`
+EOM
   exit 1
 fi
 
 if [ -z "${CERT_MANAGER_EMAIL:-}" ]; then
-  gum style --foreground 1 "Error: CERT_MANAGER_EMAIL is not set in .cluster.env"
-  echo "  Add: CERT_MANAGER_EMAIL=\"admin@example.com\""
+  gum format <<EOM
+**Error:** \`CERT_MANAGER_EMAIL\` is not set in \`.cluster.env\`
+
+Add: \`CERT_MANAGER_EMAIL="admin@example.com"\`
+EOM
   exit 1
 fi
 
@@ -27,16 +33,17 @@ CLUSTER_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster
 CLUSTER_NAME=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null || echo "unknown")
 CURRENT_CONTEXT=$(kubectl config current-context 2>/dev/null || echo "unknown")
 
-echo ""
-gum style --bold "Rancher Deployment"
-echo ""
-gum style \
-  "  Cluster:  $(gum style --foreground 3 "${CLUSTER_NAME}")" \
-  "  Server:   $(gum style --foreground 3 "${CLUSTER_SERVER}")" \
-  "  Context:  $(gum style --foreground 3 "${CURRENT_CONTEXT}")" \
-  "  Hostname: $(gum style --foreground 3 "${RANCHER_HOSTNAME}")" \
-  "  Email:    $(gum style --foreground 3 "${CERT_MANAGER_EMAIL}")" \
-  "  Kubeconfig: $(gum style --foreground 3 "${KUBECONFIG}")"
+gum format <<EOM
+
+# Rancher Deployment
+
+- Cluster: \`${CLUSTER_NAME}\`
+- Server: \`${CLUSTER_SERVER}\`
+- Context: \`${CURRENT_CONTEXT}\`
+- Hostname: \`${RANCHER_HOSTNAME}\`
+- Email: \`${CERT_MANAGER_EMAIL}\`
+- Kubeconfig: \`${KUBECONFIG}\`
+EOM
 echo ""
 
 gum confirm "Deploy Rancher to this cluster?" || exit 0
@@ -45,14 +52,17 @@ echo ""
 
 gum spin --title "Deploying Rancher (${RANCHER_HOSTNAME})..." -- \
   bash -c "envsubst < cluster-setup/50_rancher.yaml | kubectl apply -f -"
-gum style --foreground 2 "  ✓ Rancher HelmChart applied"
+gum format -- "  ✓ Rancher HelmChart applied"
 
-echo ""
-gum style --bold --foreground 2 "✓ Rancher deployment initiated!"
-echo ""
-echo "Rancher will be available at https://${RANCHER_HOSTNAME} once the Helm controller finishes."
-echo ""
-echo "Verify:"
-echo "  export KUBECONFIG=server-setup/kubeconfig"
-echo "  kubectl get helmchart rancher -n kube-system"
-echo "  kubectl get pods -n cattle-system"
+gum format <<EOM
+
+**✓ Rancher deployment initiated!**
+
+Rancher will be available at \`https://${RANCHER_HOSTNAME}\` once the Helm controller finishes.
+
+Verify:
+\`\`\`
+mise run kubectl get helmchart rancher -n kube-system
+mise run kubectl get pods -n cattle-system
+\`\`\`
+EOM

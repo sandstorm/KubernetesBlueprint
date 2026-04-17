@@ -13,7 +13,7 @@ P="${CLUSTER_PREFIX}"
 hcloud context use "$HCLOUD_CONTEXT"
 
 echo ""
-gum style --bold "Creating Hetzner Cloud resources (prefix: ${P})"
+gum format -- "# Creating Hetzner Cloud resources (prefix: \`${P}\`)"
 echo ""
 
 # --- Network ---
@@ -129,11 +129,12 @@ k3s_version: "${K3S_VERSION}"
 k3s_token: "${K3S_TOKEN}"
 GROUPVARS
 
-echo ""
-gum style --foreground 2 "✓ Infrastructure ready!"
-echo ""
-echo "  Node 1:        ssh root@${NODE1_PUBLIC_IP}"
-echo "  Load Balancer: ${LB_PUBLIC_IP} (ports 80, 443)"
-echo ""
-echo "Run 'ssh root@${NODE1_PUBLIC_IP}' to connect initially."
-echo "Run 'mise run hetzner:ansible' to install k3s."
+gum format <<EOM
+
+**✓ Infrastructure ready!**
+
+- Node 1: \`ssh root@${NODE1_PUBLIC_IP}\`
+- Load Balancer: \`${LB_PUBLIC_IP}\` (ports 80, 443)
+
+Next: \`mise run hetzner:ansible\`
+EOM
