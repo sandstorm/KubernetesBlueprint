@@ -4,6 +4,7 @@
     login_host: 'localhost'
     login_user: 'root'
     login_password: '{{ mariadb_root_password }}'
+    login_unix_socket: /run/mysqld/mysqld.sock
     name: 'operator-database-admin'
     password: '{{ mariadb_root_password }}'
     priv: '*.*:ALL,GRANT'
