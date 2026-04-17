@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  namespace: {{ .Release.Namespace }}
+  name: {{ .Release.Name }}
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ .Release.Name }}
+      component: app
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    # Allow incoming access from traefik gateway
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: traefik-gateway
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: traefik
+
+    # Allow incoming access from ourselves
+    - podSelector:
+        matchLabels:
+          app: {{ .Release.Name }}
+          component: app

@@ -1,0 +1,41 @@
+{{- if .Values.redis }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: {{ .Release.Namespace }}
+  name: {{ .Release.Name }}-redis
+  labels:
+    app: {{ .Release.Name }}-redis
+spec:
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-redis
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+  template:
+    metadata:
+      namespace: {{ .Release.Namespace }}
+      name: {{ .Release.Name }}-redis
+      labels:
+        app: {{ .Release.Name }}-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.0.12-alpine
+          imagePullPolicy: Always
+          {{- if eq .Values.redis "persistent" }}
+          command: ["redis-server"]
+          args: ["--appendonly", "yes"]
+          volumeMounts:
+            - name: redis-persistent
+              mountPath: /data
+          {{- end }}
+      {{- if eq .Values.redis "persistent" }}
+      volumes:
+        - name: redis-persistent
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-redis-claim
+      {{- end }}
+{{- end }}

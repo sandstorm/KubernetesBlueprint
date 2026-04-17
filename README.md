@@ -1,5 +1,60 @@
 # K3s Standalone Boilerplate
 
+<!-- TOC -->
+
+* [K3s Standalone Boilerplate](#k3s-standalone-boilerplate)
+    * [Prerequisites](#prerequisites)
+    * [Quick Start with Hetzner Cloud](#quick-start-with-hetzner-cloud)
+    * [Quick Start (manual)](#quick-start-manual)
+    * [What Gets Installed](#what-gets-installed)
+    * [Network Architecture](#network-architecture)
+        * [Recommended: Nodes Behind a Load Balancer (private-only)](#recommended-nodes-behind-a-load-balancer-private-only)
+        * [Alternative: Load Balancer + Public IPs for SSH](#alternative-load-balancer--public-ips-for-ssh)
+        * [Key K3s Network Flags](#key-k3s-network-flags)
+    * [Firewall Rules](#firewall-rules)
+    * [Configuration Reference](#configuration-reference)
+        * [Required Variables](#required-variables)
+        * [Optional Variables](#optional-variables)
+        * [`k3s_extra_args` — Common Patterns](#k3s_extra_args--common-patterns)
+        * [Enabling Rancher UI](#enabling-rancher-ui)
+        * [Security](#security)
+    * [Cluster Setup (Innenausbau)](#cluster-setup-innenausbau)
+        * [What Gets Deployed](#what-gets-deployed)
+        * [Prerequisites](#prerequisites-1)
+        * [Apply](#apply)
+        * [Using TLS in Your Apps](#using-tls-in-your-apps)
+        * [Cilium CNI](#cilium-cni)
+    * [Operations](#operations)
+        * [Updating K3s](#updating-k3s)
+        * [Updating Cluster Components (Traefik, cert-manager, etc.)](#updating-cluster-components-traefik-cert-manager-etc)
+        * [Updating Cilium](#updating-cilium)
+        * [Backup & Restore](#backup--restore)
+        * [CI/CD Integration](#cicd-integration)
+    * [Troubleshooting](#troubleshooting)
+        * ["Too many open files"](#too-many-open-files)
+        * [Node not joining the cluster (multi-node)](#node-not-joining-the-cluster-multi-node)
+        * [Certificate errors when using kubectl](#certificate-errors-when-using-kubectl)
+    * [Database Operator](#database-operator)
+        * [How It Works](#how-it-works)
+        * [Setup](#setup)
+            * [1. Build and deploy the operator](#1-build-and-deploy-the-operator)
+            * [2. Register a database server](#2-register-a-database-server)
+            * [3. Create a database](#3-create-a-database)
+            * [4. Use credentials in your app](#4-use-credentials-in-your-app)
+        * [Local development](#local-development)
+    * [OneContainerOnePort Operator](#onecontaineroneport-operator)
+        * [How It Works](#how-it-works-1)
+        * [Setup](#setup-1)
+            * [1. Build and deploy the operator](#1-build-and-deploy-the-operator-1)
+            * [2. Deploy an app](#2-deploy-an-app)
+            * [3. Spec reference](#3-spec-reference)
+            * [4. Domain aliases with redirects](#4-domain-aliases-with-redirects)
+            * [5. Redis](#5-redis)
+        * [Local development](#local-development-1)
+    * [License](#license)
+
+<!-- TOC -->
+
 Ansible-based setup for installing [K3s](https://k3s.io) (lightweight Kubernetes) on a single Linux server. Extracted
 from a production setup running for 5+ years on bare metal at [Sandstorm](https://sandstorm.de).
 
@@ -216,11 +271,11 @@ firewall** (Hetzner Firewall, cloud security groups, or `ufw`/`iptables` on the 
 
 **Public-facing ports:**
 
-| Port | Protocol | Purpose                                                                                    |
-|------|----------|--------------------------------------------------------------------------------------------|
-| 80   | TCP      | HTTP ingress traffic                                                                       |
-| 443  | TCP      | HTTPS ingress traffic                                                                      |
-| 6443 | TCP      | **Kubernetes API server** (`kubectl` access) — **publicly exposed, see warning below**    |
+| Port | Protocol | Purpose                                                                                |
+|------|----------|----------------------------------------------------------------------------------------|
+| 80   | TCP      | HTTP ingress traffic                                                                   |
+| 443  | TCP      | HTTPS ingress traffic                                                                  |
+| 6443 | TCP      | **Kubernetes API server** (`kubectl` access) — **publicly exposed, see warning below** |
 
 > **Security warning — port 6443:** The Hetzner setup opens port 6443 to the internet so you can run `kubectl` from
 > your local machine and CI/CD pipelines. The API is protected by TLS and cluster credentials, but exposing it
@@ -241,17 +296,17 @@ internal network. With public IPs on nodes, you must firewall the inter-node por
 
 ### Optional Variables
 
-| Variable                        | Default                 | Description                                                                                            |
-|---------------------------------|-------------------------|--------------------------------------------------------------------------------------------------------|
-| `k3s_mode`                      | `"server"`              | `"server"` (control plane + worker) or `"agent"` (worker only)                                         |
-| `k3s_private_ip`                | —                       | Private IP of this node; auto-injects `--node-ip` (always) and `--flannel-iface` (when Flannel active) |
-| `k3s_extra_args`                | `"--cluster-init --disable-network-policy --flannel-backend=none"` | Additional K3s CLI arguments (see below) |
-| `k3s_install_etcdctl`           | `true`                  | Install etcdctl debugging tool                                                                         |
-| `etcdctl_version`               | `"v3.5.0"`              | etcdctl version                                                                                        |
-| `k3s_private_registry_host`     | —                       | Private Docker registry hostname                                                                       |
-| `k3s_private_registry_username` | —                       | Registry username                                                                                      |
-| `k3s_private_registry_password` | —                       | Registry password                                                                                      |
-| `systemd_dir`                   | `"/etc/systemd/system"` | Path for systemd unit files                                                                            |
+| Variable                        | Default                                                            | Description                                                                                            |
+|---------------------------------|--------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
+| `k3s_mode`                      | `"server"`                                                         | `"server"` (control plane + worker) or `"agent"` (worker only)                                         |
+| `k3s_private_ip`                | —                                                                  | Private IP of this node; auto-injects `--node-ip` (always) and `--flannel-iface` (when Flannel active) |
+| `k3s_extra_args`                | `"--cluster-init --disable-network-policy --flannel-backend=none"` | Additional K3s CLI arguments (see below)                                                               |
+| `k3s_install_etcdctl`           | `true`                                                             | Install etcdctl debugging tool                                                                         |
+| `etcdctl_version`               | `"v3.5.0"`                                                         | etcdctl version                                                                                        |
+| `k3s_private_registry_host`     | —                                                                  | Private Docker registry hostname                                                                       |
+| `k3s_private_registry_username` | —                                                                  | Registry username                                                                                      |
+| `k3s_private_registry_password` | —                                                                  | Registry password                                                                                      |
+| `systemd_dir`                   | `"/etc/systemd/system"`                                            | Path for systemd unit files                                                                            |
 
 ### `k3s_extra_args` — Common Patterns
 
@@ -290,7 +345,8 @@ own `k3s_extra_args`.
 
 ### Enabling Rancher UI
 
-[Rancher](https://rancher.com/) provides a web UI for managing your Kubernetes cluster. It is deployed as an optional post-cluster step after cert-manager and ClusterIssuers are running.
+[Rancher](https://rancher.com/) provides a web UI for managing your Kubernetes cluster. It is deployed as an optional
+post-cluster step after cert-manager and ClusterIssuers are running.
 
 1. Point your DNS to the server before deploying.
 2. Set `RANCHER_HOSTNAME` in `.cluster.env`:
@@ -305,11 +361,13 @@ RANCHER_HOSTNAME="rancher.example.com"
 mise run cluster-setup:rancher
 ```
 
-This applies `cluster-setup/50_rancher.yaml` which deploys Rancher via the K3s Helm controller. TLS is handled automatically by cert-manager using the `letsencrypt-prod` ClusterIssuer.
+This applies `cluster-setup/50_rancher.yaml` which deploys Rancher via the K3s Helm controller. TLS is handled
+automatically by cert-manager using the `letsencrypt-prod` ClusterIssuer.
 
 > **Rancher licensing notice:** Patch releases up to `.3` (e.g., `v2.12.0`–`v2.12.3`) are labeled
 > *"Community and Prime"* — freely available. From `.4` onwards they are *"Prime version"* only and require a
-> commercial subscription. Pin the version in `cluster-setup/50_rancher.yaml` to `.3` of your chosen minor version to stay on the free tier.
+> commercial subscription. Pin the version in `cluster-setup/50_rancher.yaml` to `.3` of your chosen minor version to
+> stay on the free tier.
 > See the [Rancher releases page](https://github.com/rancher/rancher/releases) for the exact label on each release.
 
 ### Security
@@ -325,16 +383,19 @@ After k3s is running, deploy the cluster-level services that every production cl
 
 ### What Gets Deployed
 
-| Component | How | Purpose |
-|---|---|---|
-| Traefik | `HelmChartConfig` (patches k3s built-in) | DaemonSet + Gateway API support |
-| cert-manager | `HelmChart` (deployed separately) | Automatic TLS via Let's Encrypt |
-| local-path-provisioner | `HelmChartConfig` (patches k3s built-in) | `reclaimPolicy: Retain` |
-| PriorityClass `customer` | manifest | Evict internal services before production workloads |
+| Component                | How                                      | Purpose                                             |
+|--------------------------|------------------------------------------|-----------------------------------------------------|
+| Traefik                  | `HelmChartConfig` (patches k3s built-in) | DaemonSet + Gateway API support                     |
+| cert-manager             | `HelmChart` (deployed separately)        | Automatic TLS via Let's Encrypt                     |
+| local-path-provisioner   | `HelmChartConfig` (patches k3s built-in) | `reclaimPolicy: Retain`                             |
+| PriorityClass `customer` | manifest                                 | Evict internal services before production workloads |
 
-Traefik and local-path-provisioner are already bundled with k3s (v1.33.x ships Traefik v3.6.x). We patch them via `HelmChartConfig` — no need to disable or redeploy them.
+Traefik and local-path-provisioner are already bundled with k3s (v1.33.x ships Traefik v3.6.x). We patch them via
+`HelmChartConfig` — no need to disable or redeploy them.
 
-The Hetzner setup (nodes + load balancer) is already configured to forward ports 80/443. Traefik runs as a ClusterIP DaemonSet — `CiliumLocalRedirectPolicy` intercepts traffic arriving at each node's IP on port 80/443 and redirects it to the local Traefik pod via eBPF (no hostPort, client IPs preserved).
+The Hetzner setup (nodes + load balancer) is already configured to forward ports 80/443. Traefik runs as a ClusterIP
+DaemonSet — `CiliumLocalRedirectPolicy` intercepts traffic arriving at each node's IP on port 80/443 and redirects it to
+the local Traefik pod via eBPF (no hostPort, client IPs preserved).
 
 ### Prerequisites
 
@@ -408,7 +469,8 @@ spec:
           port: 80
 ```
 
-> **Tip:** Use `letsencrypt-staging` first to verify your setup (no rate limits, but untrusted cert), then switch to `letsencrypt-prod`.
+> **Tip:** Use `letsencrypt-staging` first to verify your setup (no rate limits, but untrusted cert), then switch to
+`letsencrypt-prod`.
 
 ### Cilium CNI
 
@@ -416,13 +478,19 @@ This boilerplate uses [Cilium](https://cilium.io/) as the default CNI. Flannel (
 
 **Why Cilium?**
 
-- **eBPF-based data plane** — all packet processing happens in the kernel via eBPF programs, bypassing iptables chains entirely. Lower latency, higher throughput, and CPU savings at scale.
-- **Full kube-proxy replacement** — Cilium handles service routing, load balancing, and NodePort/hostPort via eBPF instead of iptables. No kube-proxy sidecar needed.
-- **`CiliumLocalRedirectPolicy`** — redirects traffic arriving at a node's IP directly to a local pod via eBPF, without SNAT. This is how Traefik receives traffic from the load balancer while preserving real client IPs.
-- **NetworkPolicy enforcement** — Cilium enforces Kubernetes NetworkPolicy natively via eBPF (k3s's built-in network policy controller is disabled via `--disable-network-policy`).
+- **eBPF-based data plane** — all packet processing happens in the kernel via eBPF programs, bypassing iptables chains
+  entirely. Lower latency, higher throughput, and CPU savings at scale.
+- **Full kube-proxy replacement** — Cilium handles service routing, load balancing, and NodePort/hostPort via eBPF
+  instead of iptables. No kube-proxy sidecar needed.
+- **`CiliumLocalRedirectPolicy`** — redirects traffic arriving at a node's IP directly to a local pod via eBPF, without
+  SNAT. This is how Traefik receives traffic from the load balancer while preserving real client IPs.
+- **NetworkPolicy enforcement** — Cilium enforces Kubernetes NetworkPolicy natively via eBPF (k3s's built-in network
+  policy controller is disabled via `--disable-network-policy`).
 - **Hubble observability** — built-in network flow visibility and UI via `hubble relay` and `hubble ui`.
 
-**servicelb note:** `--disable=servicelb` is intentionally NOT set. Disabling k3s's built-in load balancer controller (servicelb) breaks the Rancher management UI. servicelb is kept running but sits idle — simply avoid creating `type: LoadBalancer` services and there is no conflict with `CiliumLocalRedirectPolicy`.
+**servicelb note:** `--disable=servicelb` is intentionally NOT set. Disabling k3s's built-in load balancer controller (
+servicelb) breaks the Rancher management UI. servicelb is kept running but sits idle — simply avoid creating
+`type: LoadBalancer` services and there is no conflict with `CiliumLocalRedirectPolicy`.
 
 **Install:**
 
@@ -434,9 +502,11 @@ CILIUM_VERSION="1.18.5"
 mise run cluster-setup:cilium
 ```
 
-This runs `helm upgrade --install` with: kube-proxy replacement, `ipam.mode=kubernetes`, Hubble relay + UI, `localRedirectPolicy=true`, `operator.replicas=1` (single-node).
+This runs `helm upgrade --install` with: kube-proxy replacement, `ipam.mode=kubernetes`, Hubble relay + UI,
+`localRedirectPolicy=true`, `operator.replicas=1` (single-node).
 
-`cluster-setup:apply` then creates a `CiliumLocalRedirectPolicy` per node (see `cluster-setup/25_cilium_traefik_redirect.yaml`) that routes the node's IP:80/443 to the local Traefik pod.
+`cluster-setup:apply` then creates a `CiliumLocalRedirectPolicy` per node (see
+`cluster-setup/25_cilium_traefik_redirect.yaml`) that routes the node's IP:80/443 to the local Traefik pod.
 
 **Verify:**
 
@@ -454,12 +524,14 @@ kubectl get pods -n kube-system | grep cilium   # cilium + cilium-operator runni
 
 **Checklist:**
 
-- [ ] Read release notes at [K3s releases](https://github.com/k3s-io/k3s/releases) and [Kubernetes changelog](https://kubernetes.io/releases/)
+- [ ] Read release notes at [K3s releases](https://github.com/k3s-io/k3s/releases)
+  and [Kubernetes changelog](https://kubernetes.io/releases/)
 - [ ] Check for removed/deprecated APIs — update manifests before upgrading
-- [ ] Check [Cilium K8s compatibility matrix](https://docs.cilium.io/en/stable/network/kubernetes/compatibility/) for the target k3s version
+- [ ] Check [Cilium K8s compatibility matrix](https://docs.cilium.io/en/stable/network/kubernetes/compatibility/) for
+  the target k3s version
 - [ ] Upgrade one minor version at a time (1.32 → 1.33), don't skip versions
 - [ ] Update `K3S_VERSION` in `.cluster.env` and re-run: `mise run hetzner:ansible`
-  - Ansible restarts K3s **one node at a time** (`throttle: 1`) — the cluster stays healthy
+    - Ansible restarts K3s **one node at a time** (`throttle: 1`) — the cluster stays healthy
 - [ ] Watch pods stabilise:
   ```bash
   kubectl get pods --all-namespaces -w
@@ -474,9 +546,12 @@ kubectl get pods -n kube-system | grep cilium   # cilium + cilium-operator runni
   kubectl delete pod <pod-name> -n <namespace>
   ```
 - [ ] If nodes are stuck after upgrade, reboot them one at a time
-- [ ] Update `K3S_VERSION` in `group_vars/all.yml` to match the installed version (prevents accidental downgrade on next Ansible run)
+- [ ] Update `K3S_VERSION` in `group_vars/all.yml` to match the installed version (prevents accidental downgrade on next
+  Ansible run)
 
-**Rancher (if deployed):** Check the [support matrix](https://www.suse.com/suse-rancher/support-matrix/) for compatibility. Update the version in `cluster-setup/50_rancher.yaml` and re-run `mise run cluster-setup:rancher`. Patch releases up to `.3` (e.g., `v2.12.3`) are free community editions; `.4`+ require a Rancher Prime subscription.
+**Rancher (if deployed):** Check the [support matrix](https://www.suse.com/suse-rancher/support-matrix/) for
+compatibility. Update the version in `cluster-setup/50_rancher.yaml` and re-run `mise run cluster-setup:rancher`. Patch
+releases up to `.3` (e.g., `v2.12.3`) are free community editions; `.4`+ require a Rancher Prime subscription.
 
 ### Updating Cluster Components (Traefik, cert-manager, etc.)
 
@@ -490,7 +565,8 @@ kubectl get pods -n kube-system | grep cilium   # cilium + cilium-operator runni
   helm repo add jetstack https://charts.jetstack.io && helm repo update
   helm search repo jetstack/cert-manager --versions
   ```
-- [ ] Read upgrade notes for each component (cert-manager: [upgrading docs](https://cert-manager.io/docs/releases/upgrading/))
+- [ ] Read upgrade notes for each component (
+  cert-manager: [upgrading docs](https://cert-manager.io/docs/releases/upgrading/))
 - [ ] Update the chart version in the relevant `cluster-setup/*.yaml` file
 - [ ] Re-apply: `mise run cluster-setup:apply`
 - [ ] Watch pods stabilise: `kubectl get pods -n <namespace> -w`
@@ -504,8 +580,10 @@ kubectl get pods -n kube-system | grep cilium   # cilium + cilium-operator runni
   helm repo add cilium https://helm.cilium.io/ && helm repo update
   helm search repo cilium/cilium --versions | grep <current-minor>
   ```
-- [ ] Check [Cilium K8s compatibility matrix](https://docs.cilium.io/en/stable/network/kubernetes/compatibility/) for target version
-- [ ] Check [system requirements](https://docs.cilium.io/en/stable/operations/system_requirements/) (kernel version, Ubuntu version)
+- [ ] Check [Cilium K8s compatibility matrix](https://docs.cilium.io/en/stable/network/kubernetes/compatibility/) for
+  target version
+- [ ] Check [system requirements](https://docs.cilium.io/en/stable/operations/system_requirements/) (kernel version,
+  Ubuntu version)
 - [ ] Read [upgrade notes](https://docs.cilium.io/en/stable/operations/upgrade/) for breaking changes
 - [ ] Run **preflight checks** before upgrading (validates node readiness):
   ```bash
@@ -526,7 +604,8 @@ kubectl get pods -n kube-system | grep cilium   # cilium + cilium-operator runni
   ```bash
   mise run cluster-setup:cilium
   ```
-  This runs `helm upgrade --install` with the same values used at install time. Read current values first if you've customised them: `helm get values cilium -n kube-system`.
+  This runs `helm upgrade --install` with the same values used at install time. Read current values first if you've
+  customised them: `helm get values cilium -n kube-system`.
 - [ ] Validate: `cilium status` → all green; `cilium connectivity test` → all passed
 - [ ] Verify ingress still works end-to-end (HTTP + HTTPS request)
 - [ ] If Cilium pods can't start after upgrade: reboot nodes one at a time
@@ -613,7 +692,9 @@ If you see `x509: certificate is valid for ... not for ...`:
 
 ## Database Operator
 
-The `operator-database/` directory contains a Kubernetes operator that provisions databases on pre-existing MySQL, PostgreSQL, and ClickHouse servers. It creates isolated databases with per-application credentials and exposes connection details as ConfigMaps and Secrets.
+The `operator-database/` directory contains a Kubernetes operator that provisions databases on pre-existing MySQL,
+PostgreSQL, and ClickHouse servers. It creates isolated databases with per-application credentials and exposes
+connection details as ConfigMaps and Secrets.
 
 Built with [Operator SDK](https://sdk.operatorframework.io/) (Ansible).
 
@@ -621,12 +702,14 @@ Built with [Operator SDK](https://sdk.operatorframework.io/) (Ansible).
 
 The operator manages two Custom Resources:
 
-- **`DatabaseServer`** — admin-level config for a database server (host, port, admin credentials). Created once per server in the operator's namespace.
+- **`DatabaseServer`** — admin-level config for a database server (host, port, admin credentials). Created once per
+  server in the operator's namespace.
 - **`Database`** — user-facing resource. References a `DatabaseServer` by name. When created, the operator:
-  1. Looks up the `DatabaseServer` and its admin password Secret (both in the operator namespace)
-  2. Generates a random password and stores it in a **Secret** (named after the Database CR, in the CR's namespace) with key `DB_PASSWORD`
-  3. Creates a **ConfigMap** (same name) with keys `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_NAME`
-  4. Provisions the actual database and user on the server (PostgreSQL, MariaDB, or ClickHouse)
+    1. Looks up the `DatabaseServer` and its admin password Secret (both in the operator namespace)
+    2. Generates a random password and stores it in a **Secret** (named after the Database CR, in the CR's namespace)
+       with key `DB_PASSWORD`
+    3. Creates a **ConfigMap** (same name) with keys `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_NAME`
+    4. Provisions the actual database and user on the server (PostgreSQL, MariaDB, or ClickHouse)
 
 Database and user names are derived as `{namespace}_{name}` (overridable via `spec.databaseNameOverride`).
 
@@ -689,6 +772,7 @@ spec:
 ```
 
 The operator will create:
+
 - **Secret** `my-app-db` in namespace `my-app` with key `DB_PASSWORD`
 - **ConfigMap** `my-app-db` in namespace `my-app` with keys `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_NAME`
 - A PostgreSQL database `my_app_my_app_db` with user `my_app_my_app_db` on the server
@@ -725,6 +809,141 @@ make install
 
 # Run the operator locally (requires KUBECONFIG and POD_NAMESPACE)
 export POD_NAMESPACE=operator-database-system
+make run
+```
+
+## OneContainerOnePort Operator
+
+The `operator-onecontaineroneport/` directory contains a Kubernetes operator that deploys single-container applications
+with Gateway API routing, automatic TLS, persistent volumes, and optional Redis. One Custom Resource = one running app.
+
+Built with [Operator SDK](https://sdk.operatorframework.io/) (Helm).
+
+### How It Works
+
+The operator manages a single Custom Resource:
+
+- **`OneContainerOnePort`** — defines everything needed to run a containerized app: image, hostnames, environment,
+  volumes, health checks, and optional Redis. When created, the operator deploys:
+    - **Deployment** — single container with configurable replicas, health probes, env vars, and volume mounts
+    - **Service** — port 80 → container port
+    - **Gateway + HTTPRoutes** — TLS termination via cert-manager, domain alias 301 redirects, HTTP→HTTPS redirects (
+      hostnames chunked into groups of 16 per Gateway API limit)
+    - **ConfigMap** — from `env` key-value pairs
+    - **PersistentVolumeClaims** — auto-created from `volumes` spec
+    - **NetworkPolicy** — allows ingress from Traefik and same-app pods only
+    - **Redis** (optional) — transient or persistent Redis deployment with service, network policy, and PVC
+
+All resource names are derived from the CR name (not namespace), so **multiple apps can coexist in the same namespace**.
+
+### Setup
+
+#### 1. Build and deploy the operator
+
+```bash
+cd operator-onecontaineroneport
+
+# Build the image
+make docker-build IMG=your-registry.com/operator-onecontaineroneport:v0.0.1
+make docker-push IMG=your-registry.com/operator-onecontaineroneport:v0.0.1
+
+# Install CRDs and deploy the operator
+make install
+make deploy IMG=your-registry.com/operator-onecontaineroneport:v0.0.1
+```
+
+The operator runs in the `operator-onecontaineroneport-system` namespace.
+
+#### 2. Deploy an app
+
+Create a namespace and a `OneContainerOnePort` CR:
+
+```yaml
+apiVersion: k8s.sandstorm.de/v1alpha1
+kind: OneContainerOnePort
+metadata:
+  name: hello-world
+  namespace: my-apps
+spec:
+  image: nginx:latest
+  port: 80
+  hostNames:
+    hello-world.example.com: [ ]
+  stagingCertificates: true
+  env:
+    MESSAGE: "Hello World"
+  volumes:
+    - name: data
+      mountPath: /usr/share/nginx/html
+      storage: 100Mi
+  healthChecks:
+    readinessProbe:
+      enabled: true
+    startupProbe:
+      enabled: true
+```
+
+This creates a Deployment, Service, Gateway, HTTPRoute, ConfigMap, PVC, and NetworkPolicy — all named with the
+`hello-world` prefix.
+
+#### 3. Spec reference
+
+| Field                          | Type   | Default      | Description                                                    |
+|--------------------------------|--------|--------------|----------------------------------------------------------------|
+| `image`                        | string | required     | Container image                                                |
+| `port`                         | int    | `8080`       | Container listening port                                       |
+| `replicas`                     | int    | `1`          | Number of replicas                                             |
+| `hostNames`                    | map    | `{}`         | Primary domain → alias domains (aliases get 301 redirects)     |
+| `ssl`                          | bool   | `true`       | Enable TLS via cert-manager                                    |
+| `stagingCertificates`          | bool   | `true`       | Use Let's Encrypt staging (`false` for production certs)       |
+| `env`                          | map    | `{}`         | Environment variables (non-secret)                             |
+| `envFromSecrets`               | list   | `[]`         | Secret names to mount as `envFrom`                             |
+| `envFromConfigMaps`            | list   | `[]`         | ConfigMap names to mount as `envFrom`                          |
+| `extraPodEnvInK8sFormat`       | list   | `[]`         | Advanced env vars (supports `valueFrom`, interpolation)        |
+| `volumes`                      | list   | `[]`         | Persistent volumes: `{name, mountPath, storage}`               |
+| `extraVolumesInK8sFormat`      | list   | `[]`         | Extra volumes in native K8s format                             |
+| `extraVolumeMountsInK8sFormat` | list   | `[]`         | Extra volume mounts in native K8s format                       |
+| `command`                      | list   | `[]`         | Entrypoint override                                            |
+| `args`                         | list   | `[]`         | Arguments override                                             |
+| `imagePullPolicy`              | string | `Always`     | `Always`, `IfNotPresent`, or `Never`                           |
+| `redis`                        | string | `""`         | `"transient"`, `"persistent"`, or `""` (disabled)              |
+| `stopped`                      | bool   | `false`      | Scale to 0 and remove routing, keep PVCs                       |
+| `healthChecks`                 | object | all disabled | `readinessProbe`, `livenessProbe`, `startupProbe` (TCP socket) |
+
+#### 4. Domain aliases with redirects
+
+```yaml
+spec:
+  hostNames:
+    myapp.example.com:
+      - www.myapp.example.com
+      - old-domain.com
+```
+
+Requests to `www.myapp.example.com` and `old-domain.com` are 301-redirected to `myapp.example.com`. All domains get TLS
+certificates.
+
+#### 5. Redis
+
+```yaml
+spec:
+  redis: transient    # in-memory, cleared on redeploy
+  # or
+  redis: persistent   # appendonly with PVC (50Mi)
+```
+
+When enabled, `REDIS_HOST` and `REDIS_PORT` env vars are automatically injected into the app container, pointing to the
+per-app Redis service.
+
+### Local development
+
+```bash
+cd operator-onecontaineroneport
+
+# Install CRDs into the current cluster
+make install
+
+# Run the operator locally (requires KUBECONFIG)
 make run
 ```
 

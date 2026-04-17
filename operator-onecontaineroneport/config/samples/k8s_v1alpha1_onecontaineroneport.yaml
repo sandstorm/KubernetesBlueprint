@@ -1,0 +1,21 @@
+apiVersion: k8s.sandstorm.de/v1alpha1
+kind: OneContainerOnePort
+metadata:
+  name: hello-world
+spec:
+  image: nginx:latest
+  port: 80
+  hostNames:
+    hello-world.example.com: []
+  stagingCertificates: true
+  env:
+    MESSAGE: "Hello World"
+  volumes:
+    - name: data
+      mountPath: /usr/share/nginx/html
+      storage: 100Mi
+  healthChecks:
+    readinessProbe:
+      enabled: true
+    startupProbe:
+      enabled: true

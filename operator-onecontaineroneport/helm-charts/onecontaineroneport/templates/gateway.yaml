@@ -1,0 +1,170 @@
+{{- if (and (not .Values.stopped) (len .Values.hostNames)) }}
+
+#################################
+# Gateway (HTTP(s) endpoints) -> TLS termination happens here
+#################################
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    {{- if .Values.stagingCertificates }}
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+    {{- else }}
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    {{- end }}
+spec:
+  gatewayClassName: traefik
+  listeners:
+    {{- if .Values.ssl }}
+    - name: websecure
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: {{ .Release.Name }}-tls
+    {{- end }}
+    - name: web
+      protocol: HTTP
+      port: 80
+
+
+#################################
+# MAIN HTTPRoute for the APPLICATION
+# Split into chunks of 16 hostnames per HTTPRoute (Gateway API limit)
+#################################
+{{- $mainHosts := list }}
+{{- range $host, $aliases := .Values.hostNames }}
+  {{- $mainHosts = append $mainHosts $host }}
+{{- end }}
+{{- $chunkSize := 16 }}
+{{- $hostCount := len $mainHosts }}
+{{- $numChunks := int (div (add $hostCount (sub $chunkSize 1)) $chunkSize) }}
+{{- range $chunkIndex := until $numChunks }}
+{{- $startIdx := mul $chunkIndex $chunkSize }}
+{{- $endIdx := add $startIdx $chunkSize }}
+{{- if gt $endIdx $hostCount }}{{ $endIdx = $hostCount }}{{ end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $.Release.Name }}-route{{ if gt $numChunks 1 }}-{{ $chunkIndex }}{{ end }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  parentRefs:
+    - name: {{ $.Release.Name }}
+      {{- if $.Values.ssl }}
+      sectionName: websecure
+      {{- else }}
+      sectionName: web
+      {{- end }}
+
+  hostnames:
+    {{- range $hostIdx, $host := $mainHosts }}
+    {{- if and (ge $hostIdx $startIdx) (lt $hostIdx $endIdx) }}
+    - "{{ $host }}"
+    {{- end }}
+    {{- end }}
+
+  rules:
+    - backendRefs:
+        - name: {{ $.Release.Name }}-service
+          port: 80
+{{- end }}
+
+
+#################################
+# DOMAIN ALIASES (redirects to respective main domain)
+# Split into chunks of 16 hostnames per HTTPRoute (Gateway API limit)
+#################################
+{{- range $host, $aliases := .Values.hostNames }}
+{{- if $aliases }}
+{{- $chunkSize := 16 }}
+{{- $aliasCount := len $aliases }}
+{{- $numChunks := int (div (add $aliasCount (sub $chunkSize 1)) $chunkSize) }}
+{{- range $chunkIndex := until $numChunks }}
+{{- $startIdx := mul $chunkIndex $chunkSize }}
+{{- $endIdx := add $startIdx $chunkSize }}
+{{- if gt $endIdx $aliasCount }}{{ $endIdx = $aliasCount }}{{ end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $.Release.Name }}-aliases-{{ $host }}{{ if gt $numChunks 1 }}-{{ $chunkIndex }}{{ end }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  parentRefs:
+    - name: {{ $.Release.Name }}
+      {{- if $.Values.ssl }}
+      sectionName: websecure
+      {{- else }}
+      sectionName: web
+      {{- end }}
+
+  hostnames:
+    {{- range $aliasIdx, $alias := $aliases }}
+    {{- if and (ge $aliasIdx $startIdx) (lt $aliasIdx $endIdx) }}
+    - "{{ $alias }}"
+    {{- end }}
+    {{- end }}
+
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            hostname: {{ $host }}
+            statusCode: 301
+{{- end }}
+{{- end }}
+{{- end }}
+
+
+#################################
+# HTTP -> HTTPS redirect (if SSL is enabled)
+# Chunked to max 16 hostnames per HTTPRoute
+#################################
+{{- if .Values.ssl }}
+{{- $allHosts := list }}
+{{- range $host, $aliases := .Values.hostNames }}
+  {{- $allHosts = append $allHosts $host }}
+  {{- range $alias := $aliases }}
+    {{- $allHosts = append $allHosts $alias }}
+  {{- end }}
+{{- end }}
+{{- $chunkSize := 16 }}
+{{- $hostCount := len $allHosts }}
+{{- $numChunks := int (div (add $hostCount (sub $chunkSize 1)) $chunkSize) }}
+{{- range $chunkIndex := until $numChunks }}
+{{- $startIdx := mul $chunkIndex $chunkSize }}
+{{- $endIdx := add $startIdx $chunkSize }}
+{{- if gt $endIdx $hostCount }}{{ $endIdx = $hostCount }}{{ end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $.Release.Name }}-redirect-http{{ if gt $numChunks 1 }}-{{ $chunkIndex }}{{ end }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  parentRefs:
+    - name: {{ $.Release.Name }}
+      sectionName: web
+
+  hostnames:
+    {{- range $hostIdx, $host := $allHosts }}
+    {{- if and (ge $hostIdx $startIdx) (lt $hostIdx $endIdx) }}
+    - "{{ $host }}"
+    {{- end }}
+    {{- end }}
+
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+
+{{- end }}
+{{- end }}
+{{- end }}

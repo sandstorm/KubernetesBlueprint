@@ -1,0 +1,80 @@
+# (mandatory) Host Names (at least one), e.g.
+# hostNames:
+#   myapp.example.com:
+#     - www.myapp.example.com
+# or
+# hostNames:
+#   myapp.example.com: []
+hostNames: {}
+
+# (default: true) SSL is enabled by default via cert-manager / Let's Encrypt.
+ssl: true
+
+# (default: true) Use staging Let's Encrypt certificates.
+# Set to false for production to get trusted certificates.
+stagingCertificates: true
+
+# (mandatory) Docker Image to load into the container
+image: nginx:latest
+
+# (default: Always) Override ImagePullPolicy of container
+imagePullPolicy: Always
+
+# (default: 8080) Listening Port of the App in the Container
+port: 8080
+
+# (default: 1) Number of replicas
+replicas: 1
+
+# (optional) Environment variables (should not contain secrets - use envFromSecrets)
+# env:
+#   SMTP_USER: intern
+#   SMTP_HOST: mail.example.com
+env: {}
+
+# (optional) ConfigMap names to import as ENV into the container
+envFromConfigMaps: []
+
+# (optional) Secret names to import as ENV into the container
+envFromSecrets: []
+
+# (optional) Extra pod environment in native K8s format
+# Supports variable interpolation and valueFrom references.
+# See: https://kubernetes.io/docs/tasks/inject-data-application/define-environment-variable-container/
+extraPodEnvInK8sFormat: []
+
+# (optional) Persistent Volumes, e.g.
+# volumes:
+#   - name: data
+#     mountPath: /app/data
+#     storage: 1Gi
+volumes: []
+
+# (optional) Extra volumes in native K8s format
+# See: https://kubernetes.io/docs/concepts/storage/volumes/
+extraVolumesInK8sFormat: []
+
+# (optional) Extra volume mounts in native K8s format
+extraVolumeMountsInK8sFormat: []
+
+# (optional) Entrypoint array override
+command: []
+
+# (optional) Arguments to the entrypoint override
+args: []
+
+# (optional) Redis service: "transient", "persistent", or "" (disabled)
+# When enabled, REDIS_HOST and REDIS_PORT env vars are set automatically.
+redis: ''
+
+# (default: false) Set to true to remove deployment/service/gateway but keep PVCs.
+stopped: false
+
+# (optional, recommended) Health checks using TCP socket probes.
+healthChecks:
+  readinessProbe:
+    enabled: false
+  livenessProbe:
+    enabled: false
+  startupProbe:
+    enabled: false

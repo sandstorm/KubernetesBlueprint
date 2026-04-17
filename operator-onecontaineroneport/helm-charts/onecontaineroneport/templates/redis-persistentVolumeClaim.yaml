@@ -1,0 +1,17 @@
+{{- if eq .Values.redis "persistent" }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  namespace: {{ .Release.Namespace }}
+  name: {{ .Release.Name }}-redis-claim
+  labels:
+    app: {{ .Release.Name }}-redis
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 50Mi
+{{- end }}

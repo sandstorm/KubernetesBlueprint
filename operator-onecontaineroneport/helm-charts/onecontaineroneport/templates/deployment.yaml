@@ -1,0 +1,111 @@
+{{- if (not .Values.stopped) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: {{ .Release.Namespace }}
+  name: {{ .Release.Name }}-deployment
+  labels:
+    app: {{ .Release.Name }}
+    component: app
+spec:
+  replicas: {{ .Values.replicas | default 1 }}
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+      component: app
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+  template:
+    metadata:
+      namespace: {{ .Release.Namespace }}
+      name: {{ .Release.Name }}
+      labels:
+        app: {{ .Release.Name }}
+        component: app
+    spec:
+      containers:
+        - name: {{ .Release.Name }}
+          image: {{ .Values.image | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - name: "p-{{ .Values.port }}"
+              containerPort: {{ .Values.port }}
+          {{- if (or .Values.volumes .Values.extraVolumeMountsInK8sFormat) }}
+          volumeMounts:
+            {{- range .Values.volumes }}
+            - name: {{ .name }}-volume
+              mountPath: {{ .mountPath }}
+            {{- end }}
+            {{- if .Values.extraVolumeMountsInK8sFormat }}
+{{ toYaml .Values.extraVolumeMountsInK8sFormat | indent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- if .Values.command }}
+          command: {{ toJson .Values.command }}
+          {{- end }}
+          {{- if .Values.args }}
+          args: {{ toJson .Values.args }}
+          {{- end }}
+          env:
+          {{- if .Values.redis }}
+          - name: REDIS_HOST
+            value: "{{ .Release.Name }}-redis"
+          - name: REDIS_PORT
+            value: "6379"
+          {{- end }}
+          {{- if .Values.extraPodEnvInK8sFormat }}
+{{ toYaml .Values.extraPodEnvInK8sFormat | indent 10 }}
+          {{- end }}
+
+          {{- if (or .Values.env .Values.envFromConfigMaps .Values.envFromSecrets) }}
+          envFrom:
+            {{- if .Values.env }}
+            - configMapRef:
+                name: {{ .Release.Name }}-env
+            {{- end }}
+            {{- range .Values.envFromConfigMaps }}
+            - configMapRef:
+                name: {{.}}
+            {{- end }}
+            {{- range .Values.envFromSecrets }}
+            - secretRef:
+                name: {{.}}
+            {{- end }}
+          {{- end }}
+
+          {{- if .Values.healthChecks.startupProbe.enabled }}
+          startupProbe:
+            tcpSocket:
+              port: {{ .Values.port }}
+            failureThreshold: 30
+            periodSeconds: 5
+          {{- end }}
+          {{- if .Values.healthChecks.livenessProbe.enabled }}
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          {{- end }}
+          {{- if .Values.healthChecks.readinessProbe.enabled }}
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          {{- end }}
+
+      {{- if (or .Values.volumes .Values.extraVolumesInK8sFormat) }}
+      volumes:
+        {{- range .Values.volumes }}
+        - name: {{ .name }}-volume
+          persistentVolumeClaim:
+            claimName: {{ $.Release.Name }}-{{ .name }}-claim
+        {{- end }}
+        {{- if .Values.extraVolumesInK8sFormat }}
+{{ toYaml .Values.extraVolumesInK8sFormat | indent 8 }}
+        {{- end }}
+      {{- end }}
+{{- end }}

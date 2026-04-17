@@ -1,0 +1,18 @@
+{{- $Release := .Release }}
+{{- range .Values.volumes }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  namespace: {{ $Release.Namespace }}
+  name: {{ $Release.Name }}-{{ .name }}-claim
+  labels:
+    app: {{ $Release.Name }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: {{ .storage | default "1Gi" }}
+{{- end }}
