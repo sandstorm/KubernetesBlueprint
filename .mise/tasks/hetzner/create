@@ -94,14 +94,12 @@ echo "  Node 1 private: ${NODE1_PRIVATE_IP}"
 if hcloud load-balancer describe "${P}-lb" >/dev/null 2>&1; then
   echo "  Load balancer ${P}-lb already exists"
   # Ensure node-1 is a target (may be stale after server recreation)
-  LB_TARGETS=$(hcloud load-balancer describe "${P}-lb" -o json | jq -r '.targets[].server.name // empty')
-  if echo "$LB_TARGETS" | grep -qx "${P}-node-1"; then
-    echo "  ${P}-node-1 already a LB target"
+  if hcloud load-balancer add-target "${P}-lb" \
+       --server "${P}-node-1" \
+       --use-private-ip 2>/dev/null; then
+    echo "→ Added ${P}-node-1 to load balancer"
   else
-    echo "→ Adding ${P}-node-1 to load balancer..."
-    hcloud load-balancer add-target "${P}-lb" \
-      --server "${P}-node-1" \
-      --use-private-ip
+    echo "  ${P}-node-1 already a LB target"
   fi
 else
   echo "→ Creating load balancer ${P}-lb..."
