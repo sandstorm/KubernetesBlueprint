@@ -24,13 +24,9 @@
   apt:
     name: "postgresql-{{ postgres_version }}"
 
-- name: Install libpq-dev
+- name: Install psycopg2 (Python PostgreSQL adapter for Ansible modules)
   apt:
-    name: libpq-dev
-
-- name: "Install psycopg2"
-  pip:
-    name: psycopg2
+    name: python3-psycopg2
 
 - name: Update pg_hba.conf
   template:
