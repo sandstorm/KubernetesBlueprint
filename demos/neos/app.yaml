@@ -1,0 +1,47 @@
+apiVersion: k8s.sandstorm.de/v1alpha1
+kind: OneContainerOnePort
+metadata:
+  name: neos
+spec:
+  image: ghcr.io/sandstorm/kubernetesblueprint/demo-neos:latest
+  port: 8081
+  hostNames:
+    neos.${BASE_DOMAIN}: []
+  replicas: 1
+  ssl: true
+  stagingCertificates: false
+
+  env:
+    FLOW_CONTEXT: 'Production/Kubernetes'
+    # Trust all proxies — required because Traefik terminates TLS and proxies
+    # to the pod. Without this, Flow/Neos will not detect HTTPS correctly and
+    # generates wrong URLs (http:// instead of https://).
+    FLOW_HTTP_TRUSTED_PROXIES: '*'
+
+  envFromConfigMaps:
+    - neos-db
+  envFromSecrets:
+    - neos-db
+
+  redis: transient
+
+  volumes:
+    - name: persistent
+      mountPath: /app/Data/Persistent
+      storage: 1Gi
+
+  # Temporary volume prevents filling containerd overlay storage with cache files
+  extraVolumesInK8sFormat:
+    - name: temporary
+      emptyDir: {}
+  extraVolumeMountsInK8sFormat:
+    - mountPath: /app/Data/Temporary
+      name: temporary
+
+  healthChecks:
+    startupProbe:
+      enabled: true
+    readinessProbe:
+      enabled: true
+    livenessProbe:
+      enabled: true

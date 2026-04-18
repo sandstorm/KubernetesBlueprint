@@ -1,0 +1,6 @@
+apiVersion: k8s.sandstorm.de/v1alpha1
+kind: Database
+metadata:
+  name: neos-db
+spec:
+  databaseServer: mariadb1

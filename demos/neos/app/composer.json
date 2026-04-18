@@ -1,0 +1,27 @@
+{
+    "name": "sandstorm/k3s-neos-demo",
+    "description": "Neos CMS demo for k3s-standalone-boilerplate — customize by editing this file",
+    "license": "MIT",
+    "config": {
+        "vendor-dir": "Packages/Libraries",
+        "bin-dir": "bin",
+        "platform": {
+            "php": "8.4"
+        },
+        "allow-plugins": {
+            "neos/composer-plugin": true
+        }
+    },
+    "require": {
+        "neos/neos": "^9.1.0",
+        "neos/neos-ui": "^9.1.0",
+        "neos/contentgraph-doctrinedbaladapter": "^9.1.0",
+        "neos/demo": "*"
+    },
+    "scripts": {
+        "post-update-cmd": "Neos\\Flow\\Composer\\InstallerScripts::postUpdateAndInstall",
+        "post-install-cmd": "Neos\\Flow\\Composer\\InstallerScripts::postUpdateAndInstall",
+        "post-package-update": "Neos\\Flow\\Composer\\InstallerScripts::postPackageUpdateAndInstall",
+        "post-package-install": "Neos\\Flow\\Composer\\InstallerScripts::postPackageUpdateAndInstall"
+    }
+}

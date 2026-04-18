@@ -1,0 +1,28 @@
+{
+	skip_install_trust
+
+	frankenphp {
+	}
+}
+
+:8081 {
+	log
+
+	root /app/Web
+	encode zstd br gzip
+
+	request_body {
+		max_size 256MB
+	}
+
+	# Block direct access to PHP files except index.php
+	@blockPhp {
+		path *.php
+		not path /index.php
+	}
+	handle @blockPhp {
+		respond 404
+	}
+
+	php_server
+}

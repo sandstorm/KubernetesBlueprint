@@ -1,0 +1,13 @@
+Neos:
+  Flow:
+    persistence:
+      backendOptions:
+        driver: 'pdo_mysql'
+        charset: 'utf8mb4'
+        host: '%env:DB_HOST%'
+        port: '%env:DB_PORT%'
+        password: '%env:DB_PASSWORD%'
+        user: '%env:DB_USER%'
+        dbname: '%env:DB_NAME%'
+    cache:
+      applicationIdentifier: 'neos-demo'

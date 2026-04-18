@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+#MISE description="Deploy Neos CMS (stateful PHP CMS with MariaDB)"
+set -euo pipefail
+
+if [ ! -f .cluster.env ]; then
+  gum format -- "**Error:** \`.cluster.env\` not found. Run \`mise run hetzner:setup\` first."
+  exit 1
+fi
+source .cluster.env
+
+export KUBECONFIG="$(pwd)/server-setup/kubeconfig"
+
+if [ -z "${BASE_DOMAIN:-}" ]; then
+  gum format <<EOM
+**Error:** \`BASE_DOMAIN\` is not set in \`.cluster.env\`
+
+Add: \`BASE_DOMAIN="k3s.example.com"\`
+EOM
+  exit 1
+fi
+
+export BASE_DOMAIN
+NEOS_HOSTNAME="neos.${BASE_DOMAIN}"
+export NEOS_HOSTNAME
+
+# --- Show deploy info ---
+CLUSTER_SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || echo "unknown")
+
+gum format <<EOM
+
+# Deploy Neos CMS
+
+- Hostname: \`${NEOS_HOSTNAME}\`
+- Server: \`${CLUSTER_SERVER}\`
+- Kubeconfig: \`${KUBECONFIG}\`
+- Database: MariaDB via \`mariadb1\` DatabaseServer
+EOM
+echo ""
+
+gum confirm "Deploy Neos CMS to this cluster?" || exit 0
+
+echo ""
+
+# --- Create namespace if needed ---
+gum spin --title "Creating namespace neos..." -- \
+  kubectl create namespace neos --dry-run=client -o yaml | kubectl apply -f -
+gum format -- "  ✓ Namespace neos ready"
+
+# --- Deploy Database CR (operator provisions the DB + credentials) ---
+gum spin --title "Provisioning MariaDB database..." -- \
+  bash -c "kubectl apply -n neos -f demos/neos/database.yaml"
+gum format -- "  ✓ Database CR applied — operator will create DB, ConfigMap & Secret"
+
+# Wait for the database operator to create the credentials
+gum spin --title "Waiting for database credentials..." -- \
+  bash -c 'until kubectl get configmap neos-db -n neos >/dev/null 2>&1 && kubectl get secret neos-db -n neos >/dev/null 2>&1; do sleep 2; done'
+gum format -- "  ✓ Database credentials ready"
+
+# --- Deploy OneContainerOnePort resource ---
+gum spin --title "Deploying Neos CMS..." -- \
+  bash -c "envsubst < demos/neos/app.yaml | kubectl apply -n neos -f -"
+gum format -- "  ✓ Neos OneContainerOnePort applied"
+
+# --- Wait for operator to reconcile, then for rollout ---
+gum spin --title "Waiting for operator to create deployment..." -- \
+  bash -c 'until kubectl get deployment neos-deployment -n neos >/dev/null 2>&1; do sleep 2; done'
+gum format -- "  ✓ Deployment created by operator"
+
+gum spin --title "Waiting for Neos to be ready (migrations + startup)..." -- \
+  kubectl rollout status deployment neos-deployment -n neos --timeout=300s
+gum format -- "  ✓ Neos CMS is running"
+
+gum format <<EOM
+
+**✓ Neos CMS deployed!**
+
+Open: \`https://${NEOS_HOSTNAME}/neos\`
+Login: admin / admin
+
+\`\`\`
+mise run kubectl get pods -n neos
+mise run kubectl logs -n neos -l app=neos -f
+\`\`\`
+EOM
