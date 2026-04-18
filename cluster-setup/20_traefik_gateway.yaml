@@ -8,8 +8,8 @@
 # node's IP on port 80/443 via eBPF and redirects it to the local Traefik pod — preserving the
 # original client IP. CiliumLocalRedirectPolicy resources are applied by cluster-setup:apply.
 #
-# PROXY PROTOCOL (optional — requires enabling on the Hetzner LB too):
-# Uncomment proxyProtocol.trustedIPs in the ports section below.
+# PROXY PROTOCOL: The Hetzner LB sends PROXY protocol headers; Traefik trusts
+# connections from the private network to extract the real client IP.
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
 metadata:

@@ -9,7 +9,7 @@ spec:
     excalidraw.${BASE_DOMAIN}: []
   replicas: 1
   ssl: true
-  stagingCertificates: true
+  stagingCertificates: false
   healthChecks:
     startupProbe:
       enabled: true

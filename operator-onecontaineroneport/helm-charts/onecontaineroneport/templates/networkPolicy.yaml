@@ -15,7 +15,7 @@ spec:
     # Allow incoming access from traefik gateway
     - namespaceSelector:
         matchLabels:
-          kubernetes.io/metadata.name: traefik-gateway
+          kubernetes.io/metadata.name: kube-system
       podSelector:
         matchLabels:
           app.kubernetes.io/name: traefik
