@@ -56,15 +56,29 @@ gum spin --title "Waiting for database credentials..." -- \
   bash -c 'until kubectl get configmap neos-db -n neos >/dev/null 2>&1 && kubectl get secret neos-db -n neos >/dev/null 2>&1; do sleep 2; done'
 gum format -- "  ✓ Database credentials ready"
 
+# --- Generate Neos admin credentials (only on first deploy) ---
+if ! kubectl get secret neos-admin -n neos >/dev/null 2>&1; then
+  NEOS_ADMIN_PASSWORD=$(openssl rand -hex 12)
+  kubectl create secret generic neos-admin -n neos \
+    --from-literal=NEOS_ADMIN_PASSWORD="$NEOS_ADMIN_PASSWORD"
+  gum format -- "  ✓ Admin credentials generated"
+else
+  NEOS_ADMIN_PASSWORD=$(kubectl get secret neos-admin -n neos -o jsonpath='{.data.NEOS_ADMIN_PASSWORD}' | base64 -d)
+  gum format -- "  ✓ Admin credentials already exist"
+fi
+
 # --- Deploy OneContainerOnePort resource ---
 gum spin --title "Deploying Neos CMS..." -- \
   bash -c "envsubst < demos/neos/app.yaml | kubectl apply -n neos -f -"
 gum format -- "  ✓ Neos OneContainerOnePort applied"
 
-# --- Wait for operator to reconcile, then for rollout ---
+# --- Wait for operator to reconcile, then force redeploy to pick up image changes ---
 gum spin --title "Waiting for operator to create deployment..." -- \
   bash -c 'until kubectl get deployment neos-deployment -n neos >/dev/null 2>&1; do sleep 2; done'
 gum format -- "  ✓ Deployment created by operator"
+
+kubectl rollout restart deployment neos-deployment -n neos
+gum format -- "  ✓ Rollout restart triggered"
 
 gum spin --title "Waiting for Neos to be ready (migrations + startup)..." -- \
   kubectl rollout status deployment neos-deployment -n neos --timeout=300s
@@ -75,7 +89,7 @@ gum format <<EOM
 **✓ Neos CMS deployed!**
 
 Open: \`https://${NEOS_HOSTNAME}/neos\`
-Login: admin / admin
+Login: admin / ${NEOS_ADMIN_PASSWORD}
 
 \`\`\`
 mise run kubectl get pods -n neos
