@@ -540,6 +540,12 @@ kubectl get ciliumlocalredirectpolicy -A        # one entry per node
 kubectl get pods -n kube-system | grep cilium   # cilium + cilium-operator running
 ```
 
+**Hubble UI:** Access the network observability dashboard locally via port-forward:
+
+```bash
+mise run hubble-ui    # opens http://localhost:12000
+```
+
 ---
 
 ## Operations

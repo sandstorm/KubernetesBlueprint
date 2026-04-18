@@ -56,6 +56,10 @@ deploy_operator() {
     bash -c "kustomize build '${dir}/config/default' | kubectl apply -f -"
   gum format -- "  ✓ Controller deployed to \`${namespace}\`"
 
+  # Restart to ensure the latest image is pulled (image tag may be unchanged)
+  gum spin --title "  Restarting to pull latest image..." -- \
+    kubectl rollout restart deployment -n "${namespace}"
+
   # Wait for rollout
   gum spin --title "  Waiting for rollout..." -- \
     kubectl rollout status deployment -n "${namespace}" --timeout=120s
