@@ -8,12 +8,8 @@ kind: Gateway
 metadata:
   name: {{ .Release.Name }}
   namespace: {{ .Release.Namespace }}
-  annotations:
-    {{- if .Values.stagingCertificates }}
-    cert-manager.io/cluster-issuer: letsencrypt-staging
-    {{- else }}
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    {{- end }}
+  # cert-manager.io/cluster-issuer annotation removed — we use an explicit
+  # Certificate resource (certificate.yaml) instead of gateway-shim auto-discovery.
 spec:
   gatewayClassName: traefik
   listeners:

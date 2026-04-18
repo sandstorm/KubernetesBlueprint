@@ -1,0 +1,22 @@
+{{- if (and (not .Values.stopped) .Values.ssl (len .Values.hostNames)) }}
+#################################
+# TLS Certificate (issued by cert-manager)
+#################################
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Release.Name }}-tls
+  namespace: {{ .Release.Namespace }}
+spec:
+  secretName: {{ .Release.Name }}-tls
+  issuerRef:
+    kind: ClusterIssuer
+    name: {{ .Values.stagingCertificates | ternary "letsencrypt-staging" "letsencrypt-prod" }}
+  dnsNames:
+    {{- range $host, $aliases := .Values.hostNames }}
+    - "{{ $host }}"
+    {{- range $alias := $aliases }}
+    - "{{ $alias }}"
+    {{- end }}
+    {{- end }}
+{{- end }}
