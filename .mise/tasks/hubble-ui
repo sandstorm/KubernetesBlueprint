@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#MISE description="Port-forward Hubble UI to localhost:12000"
+set -euo pipefail
+
+if [ ! -f .cluster.env ]; then
+  gum format -- "**Error:** \`.cluster.env\` not found. Run \`mise run hetzner:setup\` first."
+  exit 1
+fi
+source .cluster.env
+
+export KUBECONFIG="$(pwd)/server-setup/kubeconfig"
+
+LOCAL_PORT=12000
+
+gum format <<EOM
+
+# Hubble UI
+
+Port-forwarding \`hubble-ui\` → **http://localhost:${LOCAL_PORT}**
+
+Press **Ctrl+C** to stop.
+EOM
+echo ""
+
+exec kubectl port-forward -n kube-system svc/hubble-ui ${LOCAL_PORT}:80
