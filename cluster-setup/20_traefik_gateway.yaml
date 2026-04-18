@@ -45,14 +45,14 @@ spec:
       # Applied per-node by cluster-setup:apply. See README for details.
       web:
         port: 80
-        # proxyProtocol:
-        #   trustedIPs:
-        #     - "10.208.183.0/24"   # Hetzner private network (LB IP range)
+        proxyProtocol:
+          trustedIPs:
+            - "10.208.183.0/24"   # Hetzner private network (LB IP range)
       websecure:
         port: 443
-        # proxyProtocol:
-        #   trustedIPs:
-        #     - "10.208.183.0/24"
+        proxyProtocol:
+          trustedIPs:
+            - "10.208.183.0/24"
       traefik:
         port: 9000
         expose:

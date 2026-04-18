@@ -19,6 +19,7 @@ EOM
   exit 1
 fi
 
+export BASE_DOMAIN
 EXCALIDRAW_HOSTNAME="excalidraw.${BASE_DOMAIN}"
 export EXCALIDRAW_HOSTNAME
 
@@ -49,9 +50,13 @@ gum spin --title "Deploying Excalidraw..." -- \
   bash -c "envsubst < demos/excalidraw/app.yaml | kubectl apply -n excalidraw -f -"
 gum format -- "  ✓ Excalidraw OneContainerOnePort applied"
 
-# --- Wait for rollout ---
+# --- Wait for operator to reconcile, then for rollout ---
+gum spin --title "Waiting for operator to create deployment..." -- \
+  bash -c 'until kubectl get deployment excalidraw-deployment -n excalidraw >/dev/null 2>&1; do sleep 2; done'
+gum format -- "  ✓ Deployment created by operator"
+
 gum spin --title "Waiting for Excalidraw to be ready..." -- \
-  kubectl rollout status deployment excalidraw -n excalidraw --timeout=120s
+  kubectl rollout status deployment excalidraw-deployment -n excalidraw --timeout=120s
 gum format -- "  ✓ Excalidraw is running"
 
 gum format <<EOM

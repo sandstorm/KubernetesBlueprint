@@ -98,15 +98,20 @@ mise run cluster-setup:apply
 # 7. Deploy operators (onecontaineroneport + database)
 mise run cluster-setup:operators
 
-# --- Optional: add a second node (Variant 2) ---
+# --- Optional: deploy demo apps (uses *.BASE_DOMAIN wildcard DNS) ---
 
-# 8a. Create second server on Hetzner + regenerate inventory
+# 8. Deploy Excalidraw (collaborative whiteboard)
+mise run demos:excalidraw
+
+# --- Optional: add a second node ---
+
+# 9a. Create second server on Hetzner + regenerate inventory
 mise run hetzner:add-node
 
-# 8b. Install k3s on the new node only
+# 9b. Install k3s on the new node only
 mise run hetzner:ansible -- --limit <PREFIX>-node-2
 
-# 8c. Re-apply cluster-setup to create CLRP for the new node
+# 9c. Re-apply cluster-setup to create CLRP for the new node
 mise run cluster-setup:apply
 
 # Tear down servers (preserves LB, IPs, network, firewall for rebuild)
@@ -368,14 +373,13 @@ own `k3s_extra_args`.
 [Rancher](https://rancher.com/) provides a web UI for managing your Kubernetes cluster. It is deployed as an optional
 post-cluster step after cert-manager and ClusterIssuers are running.
 
-1. Point your DNS to the server before deploying.
-2. Set `RANCHER_HOSTNAME` in `.cluster.env`:
+If `BASE_DOMAIN` is set, Rancher defaults to `rancher.${BASE_DOMAIN}`. To override, set `RANCHER_HOSTNAME` explicitly in `.cluster.env`:
 
 ```bash
 RANCHER_HOSTNAME="rancher.example.com"
 ```
 
-3. Run `cluster-setup:apply` first (if not done already), then:
+Run `cluster-setup:apply` first (if not done already), then:
 
 ```bash
 mise run cluster-setup:rancher
