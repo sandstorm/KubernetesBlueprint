@@ -9,4 +9,4 @@ mariadb_version: "10.11"
 mariadb_operator_server_name: "mariadb1"
 
 # Hostname/IP that K8s pods use to reach MariaDB (defaults to the server's IP)
-mariadb_operator_connect_host: "{{ ansible_host }}"
+mariadb_operator_connect_host: "{{ k3s_private_ip }}"
