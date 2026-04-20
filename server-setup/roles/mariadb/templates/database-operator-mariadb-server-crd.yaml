@@ -1,0 +1,11 @@
+apiVersion: k8s.sandstorm.de/v1alpha1
+kind: DatabaseServer
+metadata:
+  name: '{{ mariadb_operator_server_name }}'
+  namespace: operator-database-system
+spec:
+  type: mariadb
+  host: '{{ mariadb_operator_connect_host }}'
+  adminUser: operator-database-admin
+  port: 3306
+  adminPasswordSecret: '{{ mariadb_operator_server_name }}'

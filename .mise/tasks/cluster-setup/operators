@@ -72,6 +72,14 @@ deploy_operator() {
 deploy_operator "operator-onecontaineroneport" "ghcr.io/sandstorm/kubernetesblueprint/operator-onecontaineroneport:latest"
 deploy_operator "operator-database" "ghcr.io/sandstorm/kubernetesblueprint/operator-database:latest"
 
+# --- Apply DatabaseServer resources (require the CRD installed above) ---
+if ls cluster-setup/generated/*-server.yaml >/dev/null 2>&1; then
+  gum spin --title "Applying DatabaseServer resources..." -- \
+    kubectl apply -f cluster-setup/generated/
+  gum format -- "  ✓ DatabaseServer resources applied"
+  echo ""
+fi
+
 gum format <<EOM
 **✓ All operators deployed!**
 

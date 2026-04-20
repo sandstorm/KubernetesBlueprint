@@ -3,18 +3,6 @@ kind: Namespace
 metadata:
   name: operator-database-system
 ---
-apiVersion: k8s.sandstorm.de/v1alpha1
-kind: DatabaseServer
-metadata:
-  name: '{{ postgres_operator_server_name }}'
-  namespace: operator-database-system
-spec:
-  type: postgres
-  host: '{{ postgres_operator_connect_host }}'
-  port: 5432
-  adminUser: operator-database-admin
-  adminPasswordSecret: '{{ postgres_operator_server_name }}'
----
 apiVersion: v1
 kind: Secret
 metadata:

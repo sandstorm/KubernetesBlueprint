@@ -11,7 +11,19 @@
     host: '%'
     state: present
 
-- name: Apply Database Operator Config (DatabaseServer CRD + admin Secret)
+- name: Apply Database Operator Namespace + admin Secret
   command:
     cmd: 'kubectl apply -f -'
     stdin: "{{ lookup('template', './database-operator-mariadb-server.yaml') }}"
+
+- name: Render DatabaseServer CRD to remote temp file
+  template:
+    src: database-operator-mariadb-server-crd.yaml
+    dest: /tmp/database-operator-mariadb-server-crd.yaml
+    mode: 0644
+
+- name: Fetch rendered DatabaseServer CRD locally
+  fetch:
+    src: /tmp/database-operator-mariadb-server-crd.yaml
+    dest: "{{ playbook_dir }}/../cluster-setup/generated/mariadb-server.yaml"
+    flat: yes
