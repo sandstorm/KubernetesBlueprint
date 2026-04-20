@@ -2,3 +2,4 @@
 server-setup/inventory/hosts.yml
 server-setup/group_vars/all.yml
 server-setup/kubeconfig
+cluster-setup/generated/
