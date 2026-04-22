@@ -18,7 +18,8 @@
         * [`k3s_extra_args` — Common Patterns](#k3s_extra_args--common-patterns)
         * [Enabling Rancher UI](#enabling-rancher-ui)
         * [Security](#security)
-    * [Cluster Setup (Innenausbau)](#cluster-setup-innenausbau)
+    * [`.cluster.env` Reference](#clusterenv-reference)
+    * [Cluster Setup](#cluster-setup)
         * [What Gets Deployed](#what-gets-deployed)
         * [Prerequisites](#prerequisites-1)
         * [Apply](#apply)
@@ -36,8 +37,9 @@
         * [Certificate errors when using kubectl](#certificate-errors-when-using-kubectl)
     * [Database Operator](#database-operator)
         * [How It Works](#how-it-works)
+        * [Installing a Database Server on the Host](#installing-a-database-server-on-the-host)
         * [Setup](#setup)
-            * [1. Build and deploy the operator](#1-build-and-deploy-the-operator)
+            * [1. Deploy the operator](#1-deploy-the-operator)
             * [2. Register a database server](#2-register-a-database-server)
             * [3. Create a database](#3-create-a-database)
             * [4. Use credentials in your app](#4-use-credentials-in-your-app)
@@ -45,7 +47,7 @@
     * [OneContainerOnePort Operator](#onecontaineroneport-operator)
         * [How It Works](#how-it-works-1)
         * [Setup](#setup-1)
-            * [1. Build and deploy the operator](#1-build-and-deploy-the-operator-1)
+            * [1. Deploy the operator](#1-deploy-the-operator-1)
             * [2. Deploy an app](#2-deploy-an-app)
             * [3. Spec reference](#3-spec-reference)
             * [4. Domain aliases with redirects](#4-domain-aliases-with-redirects)
@@ -66,6 +68,15 @@ This boilerplate is designed for small teams running Kubernetes without a dedica
 - **Access:** SSH root access to the server
 - **Local:** [Ansible](https://docs.ansible.com/ansible/latest/installation_guide/) installed on your machine (
   `pip install ansible`)
+- **Local:** [mise](https://mise.jdx.dev/) for running tasks and managing tool versions — install with:
+  ```bash
+  curl https://mise.run | sh
+  # then add to your shell profile as instructed, e.g.:
+  echo 'eval "$(~/.local/bin/mise activate zsh)"' >> ~/.zshrc
+  ```
+  `mise` is used throughout this repo to run setup tasks, manage the Hetzner infrastructure, deploy cluster
+  components, and wrap `kubectl`. Run `mise install` once in the repo root to install pinned tool versions (
+  `gum`, `hcloud`, `jq`, etc.).
 
 ## Quick Start with Hetzner Cloud
 
@@ -73,8 +84,9 @@ We run our own clusters on [Hetzner](https://www.hetzner.com/) — we're happy l
 The `mise` tasks in this repo automate the full setup: creating servers, load balancer, firewall, and generating the
 Ansible inventory from real IPs.
 
-**Prerequisites:** [mise](https://mise.jdx.dev/) installed locally, an active Hetzner Cloud project with an API token
-configured in the `hcloud` CLI (`hcloud context create my-project`), and an SSH key uploaded to the project.
+**Prerequisites:** `mise` installed locally (see [Prerequisites](#prerequisites)), an active Hetzner Cloud project
+with an API token configured in the `hcloud` CLI (`hcloud context create my-project`), and an SSH key uploaded to
+the project.
 
 ```bash
 # 1. Install tools (gum, hcloud CLI, jq)
@@ -338,6 +350,10 @@ internal network. With public IPs on nodes, you must firewall the inter-node por
 
 This is the main knob for configuring your cluster. It maps directly to K3s CLI flags.
 
+**`--disable-network-policy`:** K3s ships with a built-in network policy controller. This flag disables it because
+Cilium enforces NetworkPolicy natively via eBPF — running both would cause conflicts. Always include this flag when
+using Cilium (i.e., whenever `--flannel-backend=none` is set).
+
 **Single node (default — with Cilium CNI):**
 
 ```yaml
@@ -374,7 +390,8 @@ own `k3s_extra_args`.
 [Rancher](https://rancher.com/) provides a web UI for managing your Kubernetes cluster. It is deployed as an optional
 post-cluster step after cert-manager and ClusterIssuers are running.
 
-If `BASE_DOMAIN` is set, Rancher defaults to `rancher.${BASE_DOMAIN}`. To override, set `RANCHER_HOSTNAME` explicitly in `.cluster.env`:
+If `BASE_DOMAIN` is set, Rancher defaults to `rancher.${BASE_DOMAIN}`. To override, set `RANCHER_HOSTNAME` explicitly in
+`.cluster.env`:
 
 ```bash
 RANCHER_HOSTNAME="rancher.example.com"
@@ -402,7 +419,29 @@ automatically by cert-manager using the `letsencrypt-prod` ClusterIssuer.
 - **Private registry credentials:** Same recommendation — use Vault for `k3s_private_registry_password`
 - The K3s binary is downloaded with SHA256 checksum verification
 
-## Cluster Setup (Innenausbau)
+## `.cluster.env` Reference
+
+`.cluster.env` is the central config file for all `mise` tasks. It is gitignored. Copy `.cluster.env.example` to
+`.cluster.env` and fill in your values, or let `mise run hetzner:setup` generate it interactively.
+
+| Variable             | Required | Description                                                                                                                                                                                                                                                   |
+|----------------------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `HCLOUD_CONTEXT`     | Hetzner  | Hetzner Cloud CLI context (`hcloud context create <name>`)                                                                                                                                                                                                    |
+| `CLUSTER_PREFIX`     | Hetzner  | Name prefix for all Hetzner resources (servers, LB, firewall, network)                                                                                                                                                                                        |
+| `SSH_KEY_NAME`       | Hetzner  | Name of the SSH key uploaded to Hetzner Cloud                                                                                                                                                                                                                 |
+| `SERVER_TYPE`        | Hetzner  | Hetzner server type (e.g. `cx22`, `cx32`)                                                                                                                                                                                                                     |
+| `LOCATION`           | Hetzner  | Hetzner datacenter location (e.g. `nbg1`, `fsn1`, `hel1`)                                                                                                                                                                                                     |
+| `OS_IMAGE`           | Hetzner  | OS image to use (e.g. `ubuntu-24.04`)                                                                                                                                                                                                                         |
+| `K3S_VERSION`        | yes      | K3s release tag (e.g. `v1.33.6+k3s1`). Also set in `group_vars/all.yml` to keep Ansible in sync.                                                                                                                                                              |
+| `K3S_TOKEN`          | yes      | Cluster shared secret. Generate with `openssl rand -hex 32`.                                                                                                                                                                                                  |
+| `BASE_DOMAIN`        | yes      | Wildcard base domain for cluster apps. Set up a DNS wildcard: `*.BASE_DOMAIN → load balancer IP`. Apps deployed via `OneContainerOnePort` or demos are reachable at `<app>.BASE_DOMAIN`. Also used as the default domain for Rancher (`rancher.BASE_DOMAIN`). |
+| `CERT_MANAGER_EMAIL` | yes      | Email address for Let's Encrypt certificate registration (used by cert-manager).                                                                                                                                                                              |
+| `CILIUM_VERSION`     | yes      | Cilium Helm chart version to install (e.g. `1.18.5`).                                                                                                                                                                                                         |
+| `RANCHER_HOSTNAME`   | no       | Override the Rancher UI hostname. Defaults to `rancher.${BASE_DOMAIN}` if unset.                                                                                                                                                                              |
+| `MARIADB_ENABLED`    | no       | Set to `"true"` to install MariaDB on the host via Ansible (see [Installing a Database Server on the Host](#installing-a-database-server-on-the-host)).                                                                                                       |
+| `POSTGRES_ENABLED`   | no       | Set to `"true"` to install PostgreSQL on the host via Ansible (see [Installing a Database Server on the Host](#installing-a-database-server-on-the-host)).                                                                                                    |
+
+## Cluster Setup
 
 After k3s is running, deploy the cluster-level services that every production cluster needs.
 
@@ -743,6 +782,52 @@ The operator manages two Custom Resources:
     4. Provisions the actual database and user on the server (PostgreSQL, MariaDB, or ClickHouse)
 
 Database and user names are derived as `{namespace}_{name}` (overridable via `spec.databaseNameOverride`).
+
+### Installing a Database Server on the Host
+
+The Database Operator connects to existing database servers — it does not install them. You need at least one
+database server reachable from inside the cluster before the operator can provision databases.
+
+The Ansible playbook includes optional `mariadb` and `postgres` roles that install MariaDB or PostgreSQL **directly
+on the K3s host** and automatically register them as `DatabaseServer` CRDs with the operator.
+
+> **Important:** Deploy the operator first (`mise run cluster-setup:operators`), then run Ansible to install the
+> database server. The registration step creates the `DatabaseServer` CRD — this requires the operator's CRDs to
+> already be installed in the cluster.
+
+**Enable in `.cluster.env`:**
+
+```bash
+MARIADB_ENABLED="true"
+POSTGRES_ENABLED="true"
+```
+
+**Set passwords in `group_vars/all.yml`** (use Ansible Vault in production):
+
+```yaml
+# MariaDB
+mariadb_enabled: true
+mariadb_root_password: "your-secure-password"   # ansible-vault encrypt_string recommended
+mariadb_version: "10.11"
+mariadb_operator_server_name: "mariadb1"        # name of the DatabaseServer CRD
+
+# PostgreSQL
+postgres_enabled: true
+postgres_root_password: "your-secure-password"  # ansible-vault encrypt_string recommended
+postgres_version: "17"
+postgres_operator_server_name: "postgres1"      # name of the DatabaseServer CRD
+```
+
+**Re-run Ansible** after deploying the operator:
+
+```bash
+mise run hetzner:ansible
+# or manually:
+ansible-playbook server-setup/playbook.yml
+```
+
+This installs the database server, configures it to accept connections from the cluster's internal network, and
+creates the `DatabaseServer` CRD in the `operator-database-system` namespace — ready for apps to use.
 
 ### Setup
 
