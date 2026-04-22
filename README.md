@@ -102,6 +102,7 @@ mise run cluster-setup:operators
 
 # 8. Deploy Excalidraw (collaborative whiteboard)
 mise run demos:excalidraw
+mise run demos:neos
 
 # --- Optional: add a second node ---
 
